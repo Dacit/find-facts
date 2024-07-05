@@ -1,0 +1,9 @@
+title = Find Facts
+module = $FIND_FACTS_HOME/lib/find-facts.jar
+requirements = \
+  env:ISABELLE_SCALA_JAR \
+  $FIND_FACTS_DEPS_JAR
+sources = \
+  find_facts.scala
+services = \
+  isabelle.Find_Facts_Tools
