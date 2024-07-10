@@ -4,6 +4,8 @@ requirements = \
   env:ISABELLE_SCALA_JAR \
   $FIND_FACTS_DEPS_JAR
 sources = \
-  find_facts.scala
+  find_facts.scala \
+  thy_blocks.scala
 services = \
-  isabelle.Find_Facts_Tools
+  isabelle.Find_Facts_Tools \
+  isabelle.Thy_Blocks_Tools
