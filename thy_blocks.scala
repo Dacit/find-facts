@@ -1,16 +1,11 @@
 /*  Author:     Fabian Huch, TU Muenchen
 
-Blocks built from command span primitives
+Block structure for Isabelle theories, read from build database.
 */
 
 package isabelle
 
 
-import isabelle.XML.Body
-
-import scala.util.parsing.input
-import scala.util.parsing.combinator
-import scala.util.parsing.input.Position
 import scala.annotation.tailrec
 
 
@@ -81,6 +76,7 @@ object Thy_Blocks {
   case class Thy(inner: List[Block]) extends Block { def spans: List[Span] = inner.flatMap(_.spans) }
   case class Prf(inner: List[Block]) extends Block { def spans: List[Span] = inner.flatMap(_.spans) }
   case class Decl(inner: List[Block]) extends Block { def spans: List[Span] = inner.flatMap(_.spans) }
+
 
   /** parser **/
 
