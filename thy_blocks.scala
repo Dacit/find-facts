@@ -11,6 +11,7 @@ import isabelle.XML.Body
 import scala.util.parsing.input
 import scala.util.parsing.combinator
 import scala.util.parsing.input.Position
+import scala.annotation.tailrec
 
 
 object Thy_Blocks {
@@ -36,26 +37,40 @@ object Thy_Blocks {
 
       val snapshot = Build.read_theory(theory_context).getOrElse(
         error("No snapshot for " + theory_context.theory))
-      
+
       snapshot.xml_markup().foldLeft((Pos(theory_context.theory), List.empty[Span])) {
         case ((pos, spans), tree) =>
           val span = from_tree(pos, tree)
           (pos + span, spans :+ span)
       }._2
     }
+
+    def contains(tree: XML.Tree, elem: XML.Elem): Boolean =
+      tree == elem || (
+        tree match {
+          case XML.Elem(_, body) => body.exists(contains(_, elem))
+          case XML.Text(content) => false
+        })
   }
 
-  case class Span(pos: Pos, command: String, kind: String, tree: XML.Tree) {
+  case class Span(pos: Pos, command: String, kind: String, tree: XML.Tree) extends Block {
     override def toString: String =
       if_proper(command, command + if_proper(kind, " (" + kind + ")") + ": ") + XML.content(tree)
+
+    def spans: List[Span] = List(this)
 
     def text: String = XML.content(tree)
     def lines: Int = Library.count_newlines(text)
     def length: Int = Symbol.length(text)
     def range: Symbol.Range = Text.Range(pos.offset, pos.offset + length)
 
-    def is_whitespace = command.isEmpty && kind.isEmpty
-    def is_comment = kind == Markup.COMMENT
+    def is_whitespace: Boolean = command.isEmpty && kind.isEmpty
+    def is_comment: Boolean = kind == Markup.COMMENT
+    def is_of_kind(kinds: Set[String]): Boolean = kinds.contains(kind)
+
+    def has_keyword(keyword: String): Boolean =
+      Span.contains(tree,
+        XML.Elem(Markup(Markup.KEYWORD2, Markup.Kind(Markup.KEYWORD)), XML.string(keyword)))
   }
 
 
@@ -63,126 +78,78 @@ object Thy_Blocks {
 
   sealed trait Block { def spans: List[Span] }
 
-  case class Command(span: Span) extends Block { def spans: List[Span] = List(span) }
-  case class Comment(span: Span) extends Block { def spans: List[Span] = List(span) }
-  case class Whitespace(span: Span) extends Block { def spans: List[Span] = List(span) }
-  case class Decl_Block(span: Span) extends Block { def spans: List[Span] = List(span) }
-  case class Block_End(span: Span) extends Block { def spans: List[Span] = List(span) }
-
-  /* proofs */
-
-  sealed trait Prf { def spans: List[Span] }
-
-  case class Prf_Done(span: Span) extends Prf { def spans: List[Span] = List(span) }
-
-  case class Prf_Inner(inner: List[Block], prf: Prf) extends Prf {
-    def spans: List[Span] = inner.flatMap(_.spans) ::: prf.spans
-  }
-
-  case class Prf_Goal(goal: Goal, prf: Prf) extends Prf {
-    def spans: List[Span] = goal.spans ::: prf.spans
-  }
-
-  case class Prf_Block(begin: Span, inner: List[Block], end: Span) extends Prf {
-    def spans: List[Span] = begin :: inner.flatMap(_.spans) ::: end :: Nil
-  }
-
-
-  /* nested */
-
-  case class Goal(command: Span, prf: Prf) extends Block {
-    def spans: List[Span] = command :: prf.spans
-  }
-
-  case class Subproof(begin: Span, inner: List[Block], end: Span) extends Block {
-    def spans = begin :: inner.flatMap(_.spans) ::: end :: Nil
-  }
-
-  case class Theory(before: List[Block], start: Span, inner: List[Block]) {
-    def spans: List[Span] = before.flatMap(_.spans) ::: start :: inner.flatMap(_.spans)
-  }
-
+  case class Thy(inner: List[Block]) extends Block { def spans: List[Span] = inner.flatMap(_.spans) }
+  case class Prf(inner: List[Block]) extends Block { def spans: List[Span] = inner.flatMap(_.spans) }
+  case class Decl(inner: List[Block]) extends Block { def spans: List[Span] = inner.flatMap(_.spans) }
 
   /** parser **/
 
-  trait Parsers extends combinator.Parsers {
-    import Keyword.*
-
-    type Elem = Span
-
-    def $$$(kind: String): Parser[Span] = elem(kind, _.kind == kind)
-
-    def comment: Parser[Comment] = elem("comment", _.is_comment) ^^ Comment.apply
-    def whitespace: Parser[Whitespace] = elem("whitespace", _.is_whitespace) ^^ Whitespace.apply
-    def command: Parser[Command] = (
-      $$$(DOCUMENT_BODY) | $$$(DOCUMENT_HEADING) |
-      $$$(NEXT_BLOCK) | $$$(PRF_ASM) | $$$(PRF_CHAIN) | $$$(PRF_SCRIPT) | $$$(PRF_DECL) |
-      $$$(DIAG) | $$$(THY_STMT) | $$$(THY_LOAD) | $$$(THY_DEFN) | $$$(THY_DECL)) ^^ Command.apply
-
-    def inner: Parser[Block] = comment | whitespace | command
-
-    def prf_done: Parser[Prf_Done] = ($$$(QED_SCRIPT) | $$$(QED)) ^^ Prf_Done.apply
-    
-    def prf_inner: Parser[Prf_Inner] = rep1(inner) ~ prf ^^ {
-      case commands ~ prf => Prf_Inner(commands, prf)
-    }
-    
-    def prf_goal: Parser[Prf_Goal] = ($$$(PRF_SCRIPT_GOAL) | $$$(PRF_SCRIPT_ASM_GOAL)) ~! prf ~ prf ^^ {
-      case command ~ prf ~ prf1 => Prf_Goal(Goal(command, prf), prf1)
-    }
-    
-    def prf_block: Parser[Prf_Block] = $$$(PRF_BLOCK) ~! prflevel ~ $$$(QED_BLOCK) ^^ {
-      case begin ~ inner ~ end => Prf_Block(begin, inner, end)
+  object Parser {
+    object Blocks {
+      def empty: Blocks = new Blocks(Nil, Nil)
     }
 
-    def prf: Parser[Prf] = prf_block | prf_done | prf_inner | prf_goal
+    case class Blocks(private val stack: List[Block], private val out: List[Block]) {
+      def peek: Option[Block] = stack.headOption
+      def push(block: Block): Blocks = copy(stack = block :: stack)
+      def add(block: Block): Blocks =
+        stack match {
+          case Nil => copy(out = block :: out)
+          case head :: rest =>
+            val head1 =
+              head match {
+                case Thy(inner) => Thy(inner :+ block)
+                case Prf(inner) => Prf(inner :+ block)
+                case Decl(inner) => Decl(inner :+ block)
+                case _ => error("Cannot add to " + head)
+              }
+            copy(stack = head1 :: rest)
+        }
 
-    def goal: Parser[Goal] =
-      ($$$(PRF_GOAL) | $$$(PRF_ASM_GOAL) |
-        $$$(THY_GOAL) | $$$(THY_GOAL_STMT) | $$$(THY_GOAL_DEFN)) ~! prf ^^ {
-        case command ~ prf => Goal(command, prf)
+      def pop: Blocks =
+        stack match {
+          case Nil => error("Nothing to pop")
+          case head :: rest => copy(stack = rest).add(head)
+        }
+
+      def pop_prfs: Blocks = {
+        val blocks1 = pop
+        blocks1.stack match {
+          case Prf(_) :: _ => blocks1.pop_prfs
+          case _ => blocks1
+        }
       }
 
-    def subproof: Parser[Subproof] = $$$(PRF_OPEN) ~! prflevel ~ $$$(PRF_CLOSE) ^^ {
-      case begin ~ inner ~ end => Subproof(begin, inner, end)
+      def output: List[Block] = if (stack.nonEmpty) error("Nonempty stack") else out.reverse
     }
-    
-    def decl_block: Parser[Decl_Block] = $$$(THY_DECL_BLOCK) ^^ Decl_Block.apply
-    def block_end: Parser[Block_End] = $$$(THY_END) ^^ Block_End.apply
 
-    def prflevel: Parser[List[Block]] = rep(inner | goal | subproof)
-    def toplevel: Parser[List[Block]] = rep(inner | goal | decl_block | block_end)
+    def parse(spans: List[Span]): List[Block] = {
+      import Keyword.*
 
-    def theory: Parser[Theory] = rep(command | comment | whitespace) ~ $$$(THY_BEGIN) ~! toplevel ^^ {
-      case before ~ begin ~ inner => Theory(before, begin, inner)
-    }
-  }
-
-  object Parser extends Parsers {
-    class Reader(span: List[Span], line: Int = 0) extends input.Reader[Span] { reader =>
-      def pos: input.Position =
-        new Position {
-          def line: Int = reader.line
-          def column: Int = 0
-          protected def lineContents: String = ""
+      def parse1(blocks: Blocks, span: Span): Blocks =
+        blocks.peek match {
+          case _ if span.is_comment || span.is_whitespace || span.is_of_kind(document) =>
+            blocks.add(span)
+          case None if span.is_of_kind(theory_begin) => blocks.push(Thy(List(span)))
+          case Some(_) if span.is_of_kind(diag) => blocks.add(span)
+          case Some(Thy(_)) if span.is_of_kind(theory_goal) => blocks.push(Prf(List(span)))
+          case Some(Thy(_)) if span.is_of_kind(theory_block) =>
+            val decl = Decl(List(span))
+            if (span.has_keyword("begin")) blocks.push(decl) else blocks.add(decl)
+          case Some(Thy(_)) if span.is_of_kind(theory_end) => blocks.add(span).pop
+          case Some(Thy(_)) if span.is_of_kind(theory_body) => blocks.add(span)
+          case Some(Prf(_)) if span.is_of_kind(proof_open) => blocks.push(Prf(List(span)))
+          case Some(Prf(_)) if span.is_of_kind(proof_close) => blocks.add(span).pop
+          case Some(Prf(_)) if span.is_of_kind(qed_global) => blocks.add(span).pop_prfs
+          case Some(Prf(_)) if span.is_of_kind(proof_body) => blocks.add(span)
+          case Some(Decl(_)) if span.is_of_kind(theory_goal) => blocks.push(Prf(List(span)))
+          case Some(Decl(_)) if span.is_of_kind(theory_block) => blocks.push(Decl(List(span)))
+          case Some(Decl(_)) if span.is_of_kind(theory_end) => blocks.add(span).pop
+          case Some(Decl(_)) if span.is_of_kind(theory_body) => blocks.add(span)
+          case e => error("Unexpected span " + span + " at " + e)
         }
-      def first: Span = span.head
-      def rest: Reader = new Reader(span.tail, line + span.head.lines)
-      def atEnd: Boolean = span.isEmpty
-    }
-  }
 
-  def parse(theory_context: Export.Theory_Context, progress: Progress): Theory = {
-    val spans = Span.read_build(theory_context)
-    progress.echo("Parsing theory " + theory_context.theory + " with " + spans.length + " spans")
-    
-    val input = new Parser.Reader(spans)
-    val result = Parser.theory(input)
-    (result: @unchecked) match {
-      case Parser.Success(thy, _) => thy
-      case Parser.NoSuccess(s, next) =>
-        val span = if_proper(!next.atEnd, ": " + next.first.toString)
-        error("Malformed commands: " + s + " at " + next.pos + span)
+      spans.foldLeft(Blocks.empty)(parse1).output
     }
   }
 
@@ -200,17 +167,21 @@ object Thy_Blocks {
     val session_structure = Sessions.load_structure(options).selection(selection)
     val deps = Sessions.Deps.load(session_structure)
 
-    def read(session_name: String): List[Theory] =
+    def read(session_name: String): List[List[Block]] =
       using(Export.open_session_context0(store, session_name)) { session_context =>
         for {
           db <- session_context.session_db().toList
           name <- deps(session_name).proper_session_theories
-          theory_context = session_context.theory(name.theory)
-        } yield Thy_Blocks.parse(theory_context, progress)
+        } yield {
+          val theory_context = session_context.theory(name.theory)
+          val spans = Span.read_build(theory_context)
+          progress.echo("Parsing theory " + name.theory + " with " + spans.length + " spans")
+          Parser.parse(spans)
+        }
       }
 
-    val thys = sessions.flatMap(read)
-    progress.echo("Parsed " + thys.length + " thys")
+    val blocks = sessions.flatMap(read)
+    progress.echo("Parsed " + blocks.length + " blocks")
   }
 
 
