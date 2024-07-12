@@ -40,7 +40,7 @@ object Find_Facts {
 
     filter(trim(source.reverse).reverse)
   }
-  
+
   def get_blocks(
     version: String,
     name: Document.Node.Name,
@@ -93,10 +93,10 @@ object Find_Facts {
       val src_after = get_source(line_range.stop.line, line_range.stop.line + 5)
       val markup = YXML.string_of_body(sanitize_body(block.body))
       val html = XML.string_of_body(node_context.make_html(elements, block.body))
-      
+
       val maybe_entities = entities.range(symbol_range.start, symbol_range.stop).values.toList
       def get_entities(kind: String): List[String] =
-        for { 
+        for {
           entity <- maybe_entities
           if entity.export_kind == kind
           if symbol_range.contains(entity.range)
@@ -105,7 +105,7 @@ object Find_Facts {
       val typs = get_entities(Export_Theory.Kind.TYPE)
       val consts = get_entities(Export_Theory.Kind.CONST)
       val thms = get_entities(Export_Theory.Kind.THM)
-      
+
       Block(id = id, version = version, session = session, theory = theory, file = name.node,
         url = url, command = block.command, start_line = line_range.start.line,
         src_before = src_before, src = Symbol.decode(block.source), src_after = src_after,
