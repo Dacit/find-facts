@@ -38,7 +38,7 @@ object Find_Facts {
         case e => List(e)
       }
 
-    filter(trim(source.reverse).reverse)
+    filter(trim(body.reverse).reverse)
   }
 
   def get_blocks(
@@ -46,20 +46,18 @@ object Find_Facts {
     name: Document.Node.Name,
     browser_info_context: Browser_Info.Context,
     document_info: Document_Info,
-    theory_context: Export.Theory_Context,
-    progress: Progress
+    theory_context: Export.Theory_Context
   ): List[Block] = {
-
     val elements = Browser_Info.default_elements.copy(entity = Markup.Elements.empty)
     val node_context = Browser_Info.Node_Context.empty
 
     val blocks = Thy_Blocks.read_blocks(theory_context)
-    val source = Line.Document(blocks.map(_.source).mkString)
+    val lines = Line.Document(blocks.map(_.source).mkString)
 
     def get_source(start_line: Int, stop_line: Int): String = {
       val start_pos = Line.Position(start_line.max(0))
-      val stop_pos = Line.Position(stop_line.min(source.lines.length))
-      Text.Range(source.offset(start_pos).get, source.offset(stop_pos).get).substring(source.text)
+      val stop_pos = Line.Position(stop_line.min(lines.lines.length))
+      Text.Range(lines.offset(start_pos).get, lines.offset(stop_pos).get).substring(lines.text)
     }
 
     val entities = TreeMap.from(
@@ -78,23 +76,24 @@ object Find_Facts {
       }
 
     val session = theory_context.session_context.session_name
-    val theory = Long_Name.base_name(theory_context.theory)
-    val theory_info = document_info.theory_by_name(session, theory_context.theory).getOrElse(
-      error("No info for theory " + theory_context.theory))
+    val theory = theory_context.theory
+    val theory_info =
+      document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
     val url = browser_info_context.theory_html(theory_info).implode
 
     blocks.flatMap(expand_block).map { block =>
-      if (block.spans.isEmpty) error("empty blocK: " + block)
+      if (block.spans.isEmpty) error("Empty block: " + block)
 
       val symbol_range = block.symbol_range
-      val id = theory_context.theory + "#" + symbol_range.start + ".." + symbol_range.stop
-      val line_range = source.range(block.source_range)
+      val id = theory + "#" + symbol_range.start + ".." + symbol_range.stop
+      val line_range = lines.range(block.source_range)
       val src_before = get_source(line_range.start.line - 5, line_range.start.line)
       val src_after = get_source(line_range.stop.line, line_range.stop.line + 5)
       val markup = YXML.string_of_body(sanitize_body(block.body))
       val html = XML.string_of_body(node_context.make_html(elements, block.body))
 
-      val maybe_entities = entities.range(symbol_range.start, symbol_range.stop).values.toList
+      val maybe_entities =
+        entities.range(symbol_range.start, symbol_range.stop).values.toList.distinct
       def get_entities(kind: String): List[String] =
         for {
           entity <- maybe_entities
@@ -106,8 +105,8 @@ object Find_Facts {
       val consts = get_entities(Export_Theory.Kind.CONST)
       val thms = get_entities(Export_Theory.Kind.THM)
 
-      Block(id = id, version = version, session = session, theory = theory, file = name.node,
-        url = url, command = block.command, start_line = line_range.start.line,
+      Block(id = id, version = version, session = session, theory = Long_Name.base_name(theory),
+        file = name.node, url = url, command = block.command, start_line = line_range.start.line,
         src_before = src_before, src = Symbol.decode(block.source), src_after = src_after,
         markup = markup, html = html, typs = typs, consts = consts, thms = thms)
     }
@@ -138,7 +137,7 @@ object Find_Facts {
             deps(session).proper_session_theories.flatMap { name =>
               progress.echo("Theory " + name.theory + " ...")
               val theory_context = session_context.theory(name.theory)
-              get_blocks(version, name, browser_info_context, document_info, theory_context, progress)
+              get_blocks(version, name, browser_info_context, document_info, theory_context)
             }
           })
       }
