@@ -12,8 +12,9 @@ import scala.annotation.tailrec
 object Thy_Blocks {
   /** spans **/
 
-  case class Pos(file: String, line: Int = 0, offset: Symbol.Offset = 0) {
-    def +(span: Span): Pos = copy(line = line + span.lines, offset + span.length)
+  case class Pos(file: String, line: Int = 0, source: Text.Offset = 0, symbol: Symbol.Offset = 1) {
+    def +(span: Span): Pos = copy(line = line + span.lines, source = source + span.source.length,
+      symbol = symbol + span.symbols.length)
   }
 
   object Span {
@@ -48,16 +49,13 @@ object Thy_Blocks {
         })
   }
 
-  case class Span(pos: Pos, command: String, kind: String, tree: XML.Tree) extends Block {
+  case class Span(override val pos: Pos, override val command: String, kind: String, tree: XML.Tree)
+    extends Block {
+
     override def toString: String =
-      if_proper(command, command + if_proper(kind, " (" + kind + ")") + ": ") + XML.content(tree)
+      if_proper(command, command + if_proper(kind, " (" + kind + ")") + ": ") + source
 
     def spans: List[Span] = List(this)
-
-    def text: String = XML.content(tree)
-    def lines: Int = Library.count_newlines(text)
-    def length: Int = Symbol.length(text)
-    def range: Symbol.Range = Text.Range(pos.offset, pos.offset + length)
 
     def is_whitespace: Boolean = command.isEmpty && kind.isEmpty
     def is_comment: Boolean = kind == Markup.COMMENT
@@ -71,11 +69,26 @@ object Thy_Blocks {
 
   /** block structure **/
 
-  sealed trait Block { def spans: List[Span] }
+  sealed trait Block {
+    def spans: List[Span]
 
-  case class Thy(inner: List[Block]) extends Block { def spans: List[Span] = inner.flatMap(_.spans) }
-  case class Prf(inner: List[Block]) extends Block { def spans: List[Span] = inner.flatMap(_.spans) }
-  case class Decl(inner: List[Block]) extends Block { def spans: List[Span] = inner.flatMap(_.spans) }
+    def pos: Pos = spans.head.pos
+    def command: String = spans.head.command
+
+    def body: XML.Body = spans.map(_.tree)
+    def source: String = XML.content(body)
+    def symbols: List[Symbol.Symbol] = Symbol.explode(source)
+
+    def lines: Int = Library.count_newlines(source)
+
+    def source_range: Text.Range = Text.Range(pos.source, pos.source + source.length)
+    def symbol_range: Symbol.Range = Text.Range(pos.symbol, pos.symbol + symbols.length)
+  }
+
+  case class Single(span: Span) extends Block { def spans = List(span) }
+  case class Thy(inner: List[Block]) extends Block { def spans = inner.flatMap(_.spans) }
+  case class Prf(inner: List[Block]) extends Block { def spans = inner.flatMap(_.spans) }
+  case class Decl(inner: List[Block]) extends Block { def spans = inner.flatMap(_.spans) }
 
 
   /** parser **/
@@ -148,6 +161,9 @@ object Thy_Blocks {
       spans.foldLeft(Blocks.empty)(parse1).output
     }
   }
+
+  def read_blocks(theory_context: Export.Theory_Context): List[Block] =
+    Parser.parse(Span.read_build(theory_context))
 
 
   /* thy blocks */
