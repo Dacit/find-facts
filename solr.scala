@@ -214,25 +214,32 @@ object Solr {
   }
 
   class Results private[Solr](
-    solr: SolrClient,
+    solr: EmbeddedSolrServer,
     query: SolrQuery,
-    private var response: QueryResponse,
-    private var cursor: String = CursorMarkParams.CURSOR_MARK_START
+    private var _cursor: String
   ) extends Iterator[Result] {
-    def num_found: Long = response.getResults.getNumFound
+    
+    def response: QueryResponse =
+      if (solr.getCoreContainer.isShutDown) error("Solr database already closed")
+      else solr.query(query.set(CursorMarkParams.CURSOR_MARK_PARAM, _cursor))
+    
+    private var _response = response
+    private var _iterator = _response.getResults.iterator
 
-    private var _iterator = response.getResults.iterator.asScala
-    def hasNext: Boolean = _iterator.hasNext || response.getNextCursorMark != cursor
-    def next(): Result =
-      new Result(
-        if (_iterator.hasNext) _iterator.next()
-        else synchronized {
-          cursor = response.getNextCursorMark
-          query.set(CursorMarkParams.CURSOR_MARK_PARAM, cursor)
-          response = solr.query(query)
-          _iterator = response.getResults.iterator.asScala
-          _iterator.next()
-        })
+    def num_found: Long = _response.getResults.getNumFound
+
+    def hasNext: Boolean = _iterator.hasNext
+    def next(): Result = {
+      val res = new Result(_iterator.next())
+      
+      if (!_iterator.hasNext && _response.getNextCursorMark != _cursor) {
+        _cursor = _response.getNextCursorMark
+        _response = response
+        _iterator = _response.getResults.iterator
+      }
+      
+      res
+    }
   }
 
 
@@ -262,15 +269,12 @@ object Solr {
       q: Source = any,
       cursor: Option[String] = None
     ): Results = {
-      val query =
-        new SolrQuery(q)
-          .setFields(fields.map(_.name): _*)
-          .setRows(Results.chunk_size)
-          .addSort("score", SolrQuery.ORDER.desc)
-          .addSort(id.name, SolrQuery.ORDER.asc)
-      query.set(CursorMarkParams.CURSOR_MARK_PARAM,
-        cursor.getOrElse(CursorMarkParams.CURSOR_MARK_START))
-      new Results(solr, query, solr.query(query))
+      val query = new SolrQuery(q)
+        .setFields(fields.map(_.name): _*)
+        .setRows(Results.chunk_size)
+        .addSort("score", SolrQuery.ORDER.desc)
+        .addSort(id.name, SolrQuery.ORDER.asc)
+      new Results(solr, query, cursor.getOrElse(CursorMarkParams.CURSOR_MARK_START))
     }
 
     def transaction[A](body: => A): A =
