@@ -1,4 +1,3 @@
 FIND_FACTS_HOME="$COMPONENT"
-FIND_FACTS_DEPS_JAR="$FIND_FACTS_HOME/lib/find-facts-deps.jar"
 
-classpath "$FIND_FACTS_DEPS_JAR"
+init_components "${ISABELLE_COMPONENTS_BASE:-$USER_HOME/.isabelle/contrib}" "$FIND_FACTS_HOME/components/find_facts"

@@ -220,5 +220,3 @@ Usage: isabelle thy_blocks [OPTIONS]
       thy_blocks(options, sessions, progress = progress)
   })
 }
-
-class Thy_Blocks_Tools extends Isabelle_Scala_Tools(Thy_Blocks.isabelle_tool)

@@ -1,11 +1,11 @@
 title = Find Facts
 module = $FIND_FACTS_HOME/lib/find-facts.jar
 requirements = \
-  env:ISABELLE_SCALA_JAR \
-  $FIND_FACTS_DEPS_JAR
+  env:ISABELLE_SCALA_JAR
 sources = \
+  component_solr.scala \
   find_facts.scala \
+  find_facts_tools.scala
   thy_blocks.scala
 services = \
-  isabelle.Find_Facts_Tools \
-  isabelle.Thy_Blocks_Tools
+  isabelle.Find_Facts_Tools
