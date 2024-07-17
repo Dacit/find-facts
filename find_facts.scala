@@ -6,6 +6,7 @@ import scala.collection.immutable.TreeMap
 
 
 object Find_Facts {
+  val index_name = "find_facts"
 
   case class Block(
     id: String,
@@ -23,7 +24,14 @@ object Find_Facts {
     html: String,
     typs: List[String],
     consts: List[String],
-    thms: List[String])
+    thms: List[String]
+  ) {
+    def theory_base: String = Long_Name.base_name(theory)
+    def kinds: List[String] =
+      (if (typs.nonEmpty) List(Export_Theory.Kind.THM) else Nil) :::
+      (if (consts.nonEmpty) List(Export_Theory.Kind.CONST) else Nil) :::
+      (if (thms.nonEmpty) List(Export_Theory.Kind.THM) else Nil)
+  }
 
   def sanitize_body(body: XML.Body): XML.Body = {
     def trim(source: XML.Body): XML.Body = source match {
@@ -121,17 +129,196 @@ object Find_Facts {
       val consts = get_entities(Export_Theory.Kind.CONST)
       val thms = get_entities(Export_Theory.Kind.THM)
 
-      Block(id = id, version = version, session = session, theory = Long_Name.base_name(theory),
-        file = name.node, url = url, command = block.command, start_line = line_range.start.line,
-        src_before = src_before, src = src, src_after = src_after, markup = markup, html = html,
-        typs = typs, consts = consts, thms = thms)
+      Block(id = id, version = version, session = session, theory = theory, file = name.node,
+        url = url, command = block.command, start_line = line_range.start.line, src_before =
+        src_before, src = src, src_after = src_after, markup = markup, html = html, typs = typs,
+        consts = consts, thms = thms)
     }
+  }
+
+
+  /* Solr data model */
+
+  object private_data extends Solr.Data("find_facts") {
+    /* types */
+
+    val symbol_codes =
+      for {
+        entry <- Symbol.symbols.entries
+        code <- entry.decode.toList
+        input <- entry.symbol :: entry.abbrevs
+      } yield input -> code
+
+    val replacements =
+      for ((symbol, codes) <- symbol_codes.groupMap(_._1)(_._2).toList if codes.length == 1)
+      yield symbol -> Library.the_single(codes)
+    
+    val Special_Char = """(.*[(){}\[\].,:"].*)""".r
+    val Arrow = """(.*=>.*)""".r
+
+    val synonyms =
+      for {
+        (symbol, code) <- symbol_codes
+        if !Special_Char.matches(symbol) && !Arrow.matches(symbol)
+      } yield symbol + " => " + code
+
+    override lazy val more_config = Map(Path.basic("synonyms.txt") -> synonyms.mkString("\n"))
+
+    object Types {
+      private val strip_html = Solr.Class("charFilter", "HTMLStripCharFilterFactory")
+      private val replace_symbol_chars =
+        replacements.collect {
+          case (Special_Char(pattern), code) =>
+            Solr.Class(
+              "charFilter", "PatternReplaceCharFilterFactory",
+              List("pattern" -> ("\\Q" + pattern + "\\E"), "replacement" -> code))
+        }
+
+      private val symbol_pattern =
+         """\s*(::|[(){}\[\].,:"]|[^\p{ASCII}]|((?![^\p{ASCII}])[^(){}\[\].,:"\s])+)\s*""".r // TODO check
+
+      private val tokenize =
+        Solr.Class("tokenizer", "WhitespaceTokenizerFactory", List("rule" -> "java"))
+      private val tokenize_symbols =
+        Solr.Class("tokenizer", "PatternTokenizerFactory",
+          List("pattern" -> symbol_pattern.toString, "group" -> "1"))
+
+      private val to_lower = Solr.Class("filter", "LowerCaseFilterFactory")
+      private val add_ascii =
+        Solr.Class("filter", "ASCIIFoldingFilterFactory", List("preserveOriginal" -> "true"))
+      private val delimit_words =
+        Solr.Class("filter", "WordDelimiterGraphFilterFactory", List(
+          "splitOnCaseChange" -> "0", "stemEnglishPossessive" -> "0", "preserveOriginal" -> "1"))
+      private val flatten = Solr.Class("filter", "FlattenGraphFilterFactory")
+      private val replace_symbols =
+        Solr.Class("filter", "SynonymGraphFilterFactory", List("synonyms" -> "synonyms.txt"))
+      private val replace_special_symbols =
+        replacements.collect {
+          case (Arrow(arrow), code) =>
+            Solr.Class("filter", "PatternReplaceFilterFactory",
+              List("pattern" -> ("\\Q" + arrow + "\\E"), "replacement" -> code))
+        }
+
+      val source =
+        Solr.Type("name", "TextField", Nil, List(
+          XML.Elem(Markup("analyzer", List("type" -> "index")),
+            List(strip_html, tokenize_symbols, to_lower, add_ascii, delimit_words, flatten)),
+          XML.Elem(
+            Markup("analyzer", List("type" -> "query")),
+              replace_symbol_chars ::: tokenize_symbols :: replace_symbols ::
+                replace_special_symbols ::: to_lower :: Nil)))
+
+      val name =
+        Solr.Type("source", "TextField", Nil, List(
+          XML.Elem(Markup("analyzer", List("type" -> "index")),
+            List(tokenize, to_lower, delimit_words, flatten)),
+          XML.Elem(Markup("analyzer", List("type" -> "query")), List(tokenize, to_lower))))
+
+      val text = Solr.Type("text", "TextField")
+    }
+
+
+    /* fields */
+
+    object Fields {
+      val id = Solr.Field("id", Solr.Type.string).make_unique_key
+      val version = Solr.Field("version", Solr.Type.string, Solr.Column_Wise(true))
+      val session = Solr.Field("session", Types.name)
+      val session_facet = Solr.Field("session_facet", Solr.Type.string, Solr.Stored(false))
+      val theory = Solr.Field("theory", Types.name)
+      val theory_base = Solr.Field("theory_base", Solr.Type.string)
+      val theory_facet = Solr.Field("theory_facet", Solr.Type.string, Solr.Stored(false))
+      val file = Solr.Field("file", Solr.Type.string)
+      val url = Solr.Field("url", Solr.Type.string)
+      val command = Solr.Field("command", Solr.Type.string, Solr.Column_Wise(true))
+      val start_line = Solr.Field("start_line", Solr.Type.int)
+      val src_before = Solr.Field("src_before", Solr.Type.string, Solr.Indexed(false))
+      val src_after = Solr.Field("src_after", Solr.Type.string, Solr.Indexed(false))
+      val src = Solr.Field("src", Types.source)
+      val markup = Solr.Field("markup", Types.text, Solr.Indexed(false))
+      val html = Solr.Field("html", Types.text, Solr.Indexed(false))
+      val typs = Solr.Field("typs", Types.name, Solr.Multi_Valued(true))
+      val consts = Solr.Field("consts", Types.name, Solr.Multi_Valued(true))
+      val thms = Solr.Field("thms", Types.name, Solr.Multi_Valued(true))
+      val kinds =
+        Solr.Field("kinds", Solr.Type.string, Solr.Multi_Valued(true) ::: Solr.Column_Wise(true))
+    }
+
+    override lazy val fields: Solr.Fields = Solr.Fields(
+      Fields.id, Fields.version, Fields.session, Fields.session_facet, Fields.theory,
+      Fields.theory_base, Fields.theory_facet, Fields.file, Fields.url, Fields.command,
+      Fields.start_line, Fields.src_before, Fields.src_after, Fields.src, Fields.markup,
+      Fields.html, Fields.typs, Fields.consts, Fields.thms, Fields.kinds)
+
+
+    /* operations */
+
+    def read_domain(db: Solr.Database, restrict: Solr.Source = Solr.any): Set[String] =
+      db.execute_query(Fields.id, List(Fields.id), restrict).map(_.string(Fields.id)).toSet
+
+    def read_blocks(db: Solr.Database): Iterator[Block] = {
+      db.execute_query(Fields.id, stored_fields).map { res =>
+        val id = res.string(Fields.id)
+        val version = res.string(Fields.version)
+        val session = res.string(Fields.session)
+        val theory = res.string(Fields.theory)
+        val file = res.string(Fields.file)
+        val url = res.string(Fields.url)
+        val command = res.string(Fields.command)
+        val start_line = res.int(Fields.start_line)
+        val src_before = res.string(Fields.src_before)
+        val src = res.string(Fields.src)
+        val src_after = res.string(Fields.src_after)
+        val markup = res.string(Fields.markup)
+        val html = res.string(Fields.html)
+        val typs = res.list_string(Fields.typs)
+        val consts = res.list_string(Fields.consts)
+        val thms = res.list_string(Fields.thms)
+
+        Block(id = id, version = version, session = session, theory = theory, file = file,
+          url = url, command = command, start_line = start_line, src_before = src_before, src = src,
+          src_after = src_after, markup = markup, html = html, typs = typs, consts = consts,
+          thms = thms)
+      }
+    }
+
+    def update_theory(db: Solr.Database, name: String, blocks: List[Block]): Unit =
+      db.transaction {
+        val delete =
+          read_domain(db, Solr.filter(Fields.theory, Solr.phrase(name))) -- blocks.map(_.id)
+
+        if (delete.nonEmpty) db.execute_batch_delete(delete.toList)
+
+        db.execute_batch_insert(
+          for (block <- blocks) yield { (doc: Solr.Document) =>
+            doc.string(Fields.id) = block.id
+            doc.string(Fields.version) = block.version
+            doc.string(Fields.session) = block.session
+            doc.string(Fields.session_facet) = block.session
+            doc.string(Fields.theory) = block.theory
+            doc.string(Fields.theory_base) = block.theory_base
+            doc.string(Fields.theory_facet) = block.theory
+            doc.string(Fields.file) = block.file
+            doc.string(Fields.url) = block.url
+            doc.string(Fields.command) = block.command
+            doc.int(Fields.start_line) = block.start_line
+            doc.string(Fields.src_before) = block.src_before
+            doc.string(Fields.src) = block.src
+            doc.string(Fields.src_after) = block.src_after
+            doc.string(Fields.markup) = block.markup
+            doc.string(Fields.html) = block.html
+            doc.string(Fields.typs) = block.typs
+            doc.string(Fields.consts) = block.consts
+            doc.string(Fields.thms) = block.thms
+            doc.string(Fields.kinds) = block.kinds
+          })
+      }
   }
 
 
   /* find facts */
 
-  def find_facts(
+  def index_blocks(
     options: Options,
     sessions: List[String],
     version: String = "",
@@ -144,18 +331,25 @@ object Find_Facts {
     val deps = Sessions.Deps.load(session_structure)
     val browser_info_context = Browser_Info.context(session_structure)
 
+    Isabelle_System.rm_tree(Solr.solr_home)
+
     val blocks =
-      using(Export.open_database_context(store)) { database_context =>
-        val document_info = Document_Info.read(database_context, deps, sessions)
-        sessions.flatMap(session =>
-          using(database_context.open_session0(session)) { session_context =>
-            progress.echo("Session " + session + " ...")
-            deps(session).proper_session_theories.flatMap { name =>
-              progress.echo("Theory " + name.theory + " ...")
-              val theory_context = session_context.theory(name.theory)
-              get_blocks(version, name, browser_info_context, document_info, theory_context)
-            }
-          })
+      using(Solr.open_database(Find_Facts.private_data)) { db =>
+        using(Export.open_database_context(store)) { database_context =>
+          val document_info = Document_Info.read(database_context, deps, sessions)
+          sessions.foreach(session =>
+            using(database_context.open_session0(session)) { session_context =>
+              progress.echo("Session " + session + " ...")
+              deps(session).proper_session_theories.foreach { name =>
+                progress.echo("Theory " + name.theory + " ...")
+                val theory_context = session_context.theory(name.theory)
+                val blocks =
+                  get_blocks(version, name, browser_info_context, document_info, theory_context)
+                Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
+              }
+            })
+        }
+        Find_Facts.private_data.read_blocks(db)
       }
 
     val num_typs = blocks.flatMap(_.typs).distinct.length
@@ -165,7 +359,7 @@ object Find_Facts {
       ", typs: " + num_typs + ", consts: " + num_consts + ", thms: " + num_thms)
   }
 
-  val isabelle_tool = Isabelle_Tool("find_facts", "", Scala_Project.here,
+  val isabelle_tool = Isabelle_Tool("index_blocks", "", Scala_Project.here,
   { args =>
     var options = Options.init()
 
@@ -183,8 +377,6 @@ Usage: isabelle find_facts [OPTIONS]
 
       val progress = new Console_Progress()
 
-      find_facts(options, sessions, progress = progress)
+      index_blocks(options, sessions, progress = progress)
   })
 }
-
-class Find_Facts_Tools extends Isabelle_Scala_Tools(Find_Facts.isabelle_tool)
