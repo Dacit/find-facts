@@ -74,7 +74,7 @@ object Find_Facts {
       if (block.source != block.source_range.substring(full_src))
         error("Inconsistent src: " + block.source + ", " + block.source_range.substring(full_src))
     }
-    
+
     def get_source(start: Line.Position, stop: Line.Position): String =
       Text.Range(document.offset(start).get, document.offset(stop).get).substring(document.text)
 
@@ -106,7 +106,7 @@ object Find_Facts {
       val symbol_range = block.symbol_range
       val id = theory + "#" + symbol_range.start + ".." + symbol_range.stop
       val line_range = document.range(block.source_range)
-      
+
       val src_before =
         get_source(Line.Position((line_range.start.line - 5).max(0)), line_range.start)
       val src = Symbol.decode(block.source)
@@ -152,7 +152,7 @@ object Find_Facts {
     val replacements =
       for ((symbol, codes) <- symbol_codes.groupMap(_._1)(_._2).toList if codes.length == 1)
       yield symbol -> Library.the_single(codes)
-    
+
     val Special_Char = """(.*[(){}\[\].,:"].*)""".r
     val Arrow = """(.*=>.*)""".r
 

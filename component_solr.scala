@@ -55,16 +55,16 @@ object Component_Solr {
 
 
       /* jars */
-      
+
       Isabelle_System.make_directory(component_dir.lib)
-      
+
       val compile = List("solr-solrj", "solr-api")
       val excluded = List("log4j")
 
-      val jars = 
+      val jars =
         File.find_files(webapp_lib_dir.file, _.getName.endsWith(".jar")) ++
           File.find_files(server_lib_dir.file, _.getName.endsWith(".jar"))
-      
+
       for (jar <- jars if excluded.forall(!jar.getName.contains(_)))
         Isabelle_System.copy_file(jar, component_dir.lib.file)
 
