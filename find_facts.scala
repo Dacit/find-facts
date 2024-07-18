@@ -11,6 +11,12 @@ object Find_Facts {
 
   /** blocks **/
 
+  object Kind {
+    val CONST = "constant"
+    val TYPE = "type"
+    val THM = "fact"
+  }
+
   case class Block(
     id: String,
     version: String,
@@ -31,9 +37,10 @@ object Find_Facts {
   ) {
     def theory_base: String = Long_Name.base_name(theory)
     def kinds: List[String] =
-      (if (typs.nonEmpty) List(Export_Theory.Kind.THM) else Nil) :::
-      (if (consts.nonEmpty) List(Export_Theory.Kind.CONST) else Nil) :::
-      (if (thms.nonEmpty) List(Export_Theory.Kind.THM) else Nil)
+      (if (typs.nonEmpty) List(Kind.TYPE) else Nil) :::
+      (if (consts.nonEmpty) List(Kind.CONST) else Nil) :::
+      (if (thms.nonEmpty) List(Kind.THM) else Nil)
+    def names: List[String] = (typs ::: consts ::: thms).distinct
   }
 
   case class Blocks(num: Long, elems: List[Block])
@@ -130,8 +137,8 @@ object Find_Facts {
       val theory = Solr.Field("theory", Types.name)
       val theory_base = Solr.Field("theory_base", Solr.Type.string)
       val theory_facet = Solr.Field("theory_facet", Solr.Type.string, Solr.Stored(false))
-      val file = Solr.Field("file", Solr.Type.string)
-      val url = Solr.Field("url", Solr.Type.string)
+      val file = Solr.Field("file", Solr.Type.string, Solr.Indexed(false))
+      val url = Solr.Field("url", Solr.Type.string, Solr.Indexed(false))
       val command = Solr.Field("command", Solr.Type.string, Solr.Column_Wise(true))
       val start_line = Solr.Field("start_line", Solr.Type.int)
       val src_before = Solr.Field("src_before", Solr.Type.string, Solr.Indexed(false))
@@ -142,15 +149,17 @@ object Find_Facts {
       val typs = Solr.Field("typs", Types.name, Solr.Multi_Valued(true))
       val consts = Solr.Field("consts", Types.name, Solr.Multi_Valued(true))
       val thms = Solr.Field("thms", Types.name, Solr.Multi_Valued(true))
+      val names = Solr.Field("names", Types.name, Solr.Multi_Valued(true) ::: Solr.Stored(false))
       val kinds =
-        Solr.Field("kinds", Solr.Type.string, Solr.Multi_Valued(true) ::: Solr.Column_Wise(true))
+        Solr.Field("kinds", Solr.Type.string,
+          Solr.Multi_Valued(true) ::: Solr.Column_Wise(true) ::: Solr.Stored(false))
     }
 
     override lazy val fields: Solr.Fields = Solr.Fields(
       Fields.id, Fields.version, Fields.session, Fields.session_facet, Fields.theory,
       Fields.theory_base, Fields.theory_facet, Fields.file, Fields.url, Fields.command,
       Fields.start_line, Fields.src_before, Fields.src_after, Fields.src, Fields.markup,
-      Fields.html, Fields.typs, Fields.consts, Fields.thms, Fields.kinds)
+      Fields.html, Fields.typs, Fields.consts, Fields.thms, Fields.names, Fields.kinds)
 
 
     /* operations */
@@ -216,6 +225,7 @@ object Find_Facts {
             doc.string(Fields.typs) = block.typs
             doc.string(Fields.consts) = block.consts
             doc.string(Fields.thms) = block.thms
+            doc.string(Fields.names) = block.names
             doc.string(Fields.kinds) = block.kinds
           })
       }
@@ -369,7 +379,7 @@ object Find_Facts {
   }
 
 
-  /* isabelle tool wrapper */
+  /* Isabelle tool wrapper */
 
   val isabelle_tool = Isabelle_Tool("find_facts_index", "index sessions for find_facts",
     Scala_Project.here,
@@ -384,13 +394,13 @@ object Find_Facts {
 
     Index sessions for find_facts.
   """,
-          "o:" -> (arg => options = options + arg))
+        "o:" -> (arg => options = options + arg))
 
-        val sessions = getopts(args)
+      val sessions = getopts(args)
 
-        val progress = new Console_Progress()
+      val progress = new Console_Progress()
 
-        index_blocks(options, sessions, progress = progress)
+      index_blocks(options, sessions, progress = progress)
     })
 
 
@@ -405,6 +415,9 @@ object Find_Facts {
       blocks.elems.foreach(block => progress.echo(block.toString))
     }
   }
+
+
+  /* Isabelle tool wrapper */
 
   val isabelle_tool1 = Isabelle_Tool("find_facts", "run find_facts query", Scala_Project.here,
   { args =>
