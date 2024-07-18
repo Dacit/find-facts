@@ -19,7 +19,7 @@ object Find_Facts {
 
   case class Block(
     id: String,
-    version: String,
+    version: Long,
     session: String,
     theory: String,
     file: String,
@@ -131,7 +131,7 @@ object Find_Facts {
 
     object Fields {
       val id = Solr.Field("id", Solr.Type.string).make_unique_key
-      val version = Solr.Field("version", Solr.Type.string, Solr.Column_Wise(true))
+      val version = Solr.Field("version", Solr.Type.long, Solr.Column_Wise(true))
       val session = Solr.Field("session", Types.name)
       val session_facet = Solr.Field("session_facet", Solr.Type.string, Solr.Stored(false))
       val theory = Solr.Field("theory", Types.name)
@@ -172,7 +172,7 @@ object Find_Facts {
       val it = if (num < 0) results else results.take(num)
       val blocks = it.map { res =>
         val id = res.string(Fields.id)
-        val version = res.string(Fields.version)
+        val version = res.long(Fields.version)
         val session = res.string(Fields.session)
         val theory = res.string(Fields.theory)
         val file = res.string(Fields.file)
@@ -207,7 +207,7 @@ object Find_Facts {
         db.execute_batch_insert(
           for (block <- blocks) yield { (doc: Solr.Document) =>
             doc.string(Fields.id) = block.id
-            doc.string(Fields.version) = block.version
+            doc.long(Fields.version) = block.version
             doc.string(Fields.session) = block.session
             doc.string(Fields.session_facet) = block.session
             doc.string(Fields.theory) = block.theory
@@ -235,7 +235,6 @@ object Find_Facts {
   /** indexing **/
 
   def read_blocks(
-    version: String,
     name: Document.Node.Name,
     browser_info_context: Browser_Info.Context,
     document_info: Document_Info,
@@ -244,7 +243,11 @@ object Find_Facts {
     val elements = Browser_Info.default_elements.copy(entity = Markup.Elements.empty)
     val node_context = Browser_Info.Node_Context.empty
 
-    val blocks = Thy_Blocks.read_blocks(theory_context)
+    val theory = theory_context.theory
+    val snapshot =
+      Build.read_theory(theory_context).getOrElse(error("Missing snapshot for " + theory))
+    val version = snapshot.version.id
+    val blocks = Thy_Blocks.read_blocks(snapshot)
     val full_src = blocks.map(_.source).mkString
     val document = Line.Document(full_src)
     val num_lines = document.lines.length
@@ -296,7 +299,6 @@ object Find_Facts {
       }
 
     val session = theory_context.session_context.session_name
-    val theory = theory_context.theory
     val theory_info =
       document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
     val url = browser_info_context.theory_html(theory_info).implode
@@ -362,8 +364,7 @@ object Find_Facts {
               deps(session).proper_session_theories.foreach { name =>
                 progress.echo("Theory " + name.theory + " ...")
                 val theory_context = session_context.theory(name.theory)
-                val blocks =
-                  read_blocks(version, name, browser_info_context, document_info, theory_context)
+                val blocks = read_blocks(name, browser_info_context, document_info, theory_context)
                 Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
               }
             })

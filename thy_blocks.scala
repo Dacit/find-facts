@@ -21,7 +21,7 @@ object Thy_Blocks {
     def whitespace(pos: Pos, text: XML.Text): Span = Span(pos, "", "", text)
     def comment(pos: Pos, elem: XML.Elem): Span = Span(pos, "", Markup.COMMENT, elem)
 
-    def read_build(theory_context: Export.Theory_Context): List[Span] = {
+    def read_build(snapshot: Document.Snapshot): List[Span] = {
       def from_tree(pos: Pos, tree: XML.Tree): Span =
         tree match {
           case elem@XML.Elem(Markup.Command_Span(arg), _) => Span(pos, arg.name, arg.kind, elem)
@@ -31,10 +31,7 @@ object Thy_Blocks {
           case _ => error("Unknown markup: " + tree)
         }
 
-      val snapshot = Build.read_theory(theory_context).getOrElse(
-        error("No snapshot for " + theory_context.theory))
-
-      snapshot.xml_markup().foldLeft((Pos(theory_context.theory), List.empty[Span])) {
+      snapshot.xml_markup().foldLeft((Pos(snapshot.node_name.theory), List.empty[Span])) {
         case ((pos, spans), tree) =>
           val span = from_tree(pos, tree)
           (pos + span, spans :+ span)
@@ -162,8 +159,8 @@ object Thy_Blocks {
     }
   }
 
-  def read_blocks(theory_context: Export.Theory_Context): List[Block] =
-    Parser.parse(Span.read_build(theory_context))
+  def read_blocks(snapshot: Document.Snapshot): List[Block] =
+    Parser.parse(Span.read_build(snapshot))
 
 
   /* thy blocks */
@@ -184,9 +181,10 @@ object Thy_Blocks {
         for {
           db <- session_context.session_db().toList
           name <- deps(session_name).proper_session_theories
+          theory_context = session_context.theory(name.theory)
+          snapshot <- Build.read_theory(theory_context)
         } yield {
-          val theory_context = session_context.theory(name.theory)
-          val spans = Span.read_build(theory_context)
+          val spans = Span.read_build(snapshot)
           progress.echo("Parsing theory " + name.theory + " with " + spans.length + " spans")
           Parser.parse(spans)
         }
