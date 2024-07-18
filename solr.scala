@@ -81,6 +81,7 @@ object Solr {
   object Type {
     val boolean = Type("boolean", "BoolField")
     val int = Type("int", "IntPointField", Column_Wise(true))
+    val long = Type("long", "LongPointField", Column_Wise(true))
     val string = Type("string", "StrField")
   }
 
@@ -167,6 +168,11 @@ object Solr {
       def update(field: Field, x: Option[Int]): Unit = rep.addField(field.name, x.orNull)
       def update(field: Field, x: List[Int]): Unit = rep.addField(field.name, x.toArray)
     }
+    object long {
+      def update(field: Field, x: Long): Unit = rep.addField(field.name, x)
+      def update(field: Field, x: Option[Long]): Unit = rep.addField(field.name, x.orNull)
+      def update(field: Field, x: List[Long]): Unit = rep.addField(field.name, x.toArray)
+    }
     object string {
       def update(field: Field, x: String): Unit = rep.addField(field.name, x)
       def update(field: Field, x: Option[String]): Unit = rep.addField(field.name, x.orNull)
@@ -195,6 +201,10 @@ object Solr {
     def int(field: Field): Int = single(field)
     def get_int(field: Field): Option[Int] = option(field)
     def list_int(field: Field): List[Int] = list(field)
+
+    def long(field: Field): Long = single(field)
+    def get_long(field: Field): Option[Long] = option(field)
+    def list_long(field: Field): List[Long] = list(field)
 
     def string(field: Field): String = single(field)
     def get_string(field: Field): Option[String] = option(field)
