@@ -22,15 +22,15 @@ object Find_Facts {
     version: Long,
     session: String,
     theory: String,
-    file: String,
-    url: String,
+    file: Path,
+    url_path: Path,
     command: String,
     start_line: Int,
     src_before: String,
     src: String,
     src_after: String,
-    markup: String,
-    html: String,
+    markup: XML.Body,
+    html: XML.Body,
     typs: List[String],
     consts: List[String],
     thms: List[String]
@@ -138,7 +138,7 @@ object Find_Facts {
       val theory_base = Solr.Field("theory_base", Solr.Type.string)
       val theory_facet = Solr.Field("theory_facet", Solr.Type.string, Solr.Stored(false))
       val file = Solr.Field("file", Solr.Type.string, Solr.Indexed(false))
-      val url = Solr.Field("url", Solr.Type.string, Solr.Indexed(false))
+      val url_path = Solr.Field("url_path", Solr.Type.string, Solr.Indexed(false))
       val command = Solr.Field("command", Solr.Type.string, Solr.Column_Wise(true))
       val start_line = Solr.Field("start_line", Solr.Type.int)
       val src_before = Solr.Field("src_before", Solr.Type.string, Solr.Indexed(false))
@@ -157,7 +157,7 @@ object Find_Facts {
 
     override lazy val fields: Solr.Fields = Solr.Fields(
       Fields.id, Fields.version, Fields.session, Fields.session_facet, Fields.theory,
-      Fields.theory_base, Fields.theory_facet, Fields.file, Fields.url, Fields.command,
+      Fields.theory_base, Fields.theory_facet, Fields.file, Fields.url_path, Fields.command,
       Fields.start_line, Fields.src_before, Fields.src_after, Fields.src, Fields.markup,
       Fields.html, Fields.typs, Fields.consts, Fields.thms, Fields.names, Fields.kinds)
 
@@ -175,21 +175,21 @@ object Find_Facts {
         val version = res.long(Fields.version)
         val session = res.string(Fields.session)
         val theory = res.string(Fields.theory)
-        val file = res.string(Fields.file)
-        val url = res.string(Fields.url)
+        val file = Path.explode(res.string(Fields.file))
+        val url_path = Path.explode(res.string(Fields.url_path))
         val command = res.string(Fields.command)
         val start_line = res.int(Fields.start_line)
         val src_before = res.string(Fields.src_before)
         val src = res.string(Fields.src)
         val src_after = res.string(Fields.src_after)
-        val markup = res.string(Fields.markup)
-        val html = res.string(Fields.html)
+        val markup = YXML.parse_body(YXML.Source(res.string(Fields.markup)))
+        val html = YXML.parse_body(YXML.Source(res.string(Fields.html)))
         val typs = res.list_string(Fields.typs)
         val consts = res.list_string(Fields.consts)
         val thms = res.list_string(Fields.thms)
 
         Block(id = id, version = version, session = session, theory = theory, file = file,
-          url = url, command = command, start_line = start_line, src_before = src_before, src = src,
+          url_path = url_path, command = command, start_line = start_line, src_before = src_before, src = src,
           src_after = src_after, markup = markup, html = html, typs = typs, consts = consts,
           thms = thms)
       }
@@ -213,15 +213,15 @@ object Find_Facts {
             doc.string(Fields.theory) = block.theory
             doc.string(Fields.theory_base) = block.theory_base
             doc.string(Fields.theory_facet) = block.theory
-            doc.string(Fields.file) = block.file
-            doc.string(Fields.url) = block.url
+            doc.string(Fields.file) = block.file.implode
+            doc.string(Fields.url_path) = block.url_path.implode
             doc.string(Fields.command) = block.command
             doc.int(Fields.start_line) = block.start_line
             doc.string(Fields.src_before) = block.src_before
             doc.string(Fields.src) = block.src
             doc.string(Fields.src_after) = block.src_after
-            doc.string(Fields.markup) = block.markup
-            doc.string(Fields.html) = block.html
+            doc.string(Fields.markup) = YXML.string_of_body(block.markup)
+            doc.string(Fields.html) = YXML.string_of_body(block.html)
             doc.string(Fields.typs) = block.typs
             doc.string(Fields.consts) = block.consts
             doc.string(Fields.thms) = block.thms
@@ -301,7 +301,7 @@ object Find_Facts {
     val session = theory_context.session_context.session_name
     val theory_info =
       document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
-    val url = browser_info_context.theory_html(theory_info).implode
+    val url_path = browser_info_context.theory_html(theory_info)
 
     blocks.flatMap(expand_block).map { block =>
       check(block)
@@ -316,8 +316,8 @@ object Find_Facts {
       val src_after =
         get_source(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines)))
 
-      val markup = YXML.string_of_body(sanitize_body(block.body))
-      val html = XML.string_of_body(node_context.make_html(elements, block.body))
+      val markup = sanitize_body(block.body)
+      val html = node_context.make_html(elements, block.body)
 
       val maybe_entities =
         entities.range(symbol_range.start, symbol_range.stop).values.toList.flatten.distinct
@@ -332,9 +332,9 @@ object Find_Facts {
       val consts = get_entities(Export_Theory.Kind.CONST)
       val thms = get_entities(Export_Theory.Kind.THM)
 
-      Block(id = id, version = version, session = session, theory = theory, file = name.node,
-        url = url, command = block.command, start_line = line_range.start.line, src_before =
-          src_before, src = src, src_after = src_after, markup = markup, html = html, typs = typs,
+      Block(id = id, version = version, session = session, theory = theory, file = name.path,
+        url_path = url_path, command = block.command, start_line = line_range.start.line, src_before =
+        src_before, src = src, src_after = src_after, markup = markup, html = html, typs = typs,
         consts = consts, thms = thms)
     }
   }
