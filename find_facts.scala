@@ -316,7 +316,7 @@ object Find_Facts {
   }
 
 
-  /* find facts */
+  /* index blocks */
 
   def index_blocks(
     options: Options,
@@ -349,7 +349,7 @@ object Find_Facts {
               }
             })
         }
-        Find_Facts.private_data.read_blocks(db)
+        Find_Facts.private_data.read_blocks(db).toList
       }
 
     val num_typs = blocks.flatMap(_.typs).distinct.length
@@ -359,17 +359,17 @@ object Find_Facts {
       ", typs: " + num_typs + ", consts: " + num_consts + ", thms: " + num_thms)
   }
 
-  val isabelle_tool = Isabelle_Tool("index_blocks", "", Scala_Project.here,
+  val isabelle_tool = Isabelle_Tool("find_facts_index", "", Scala_Project.here,
   { args =>
     var options = Options.init()
 
     val getopts = Getopts("""
-Usage: isabelle find_facts [OPTIONS]
+Usage: isabelle find_facts_index [OPTIONS] [SESSIONS ...]
 
   Options are:
     -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
 
-  Run find_facts. HOL: Blocks: 22995, typs: 101, consts: 3513, thms: 32908
+  Index sessions for find_facts.
 """,
         "o:" -> (arg => options = options + arg))
 
