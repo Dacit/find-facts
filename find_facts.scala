@@ -8,6 +8,9 @@ import scala.collection.immutable.TreeMap
 object Find_Facts {
   val index_name = "find_facts"
 
+
+  /** blocks **/
+
   case class Block(
     id: String,
     version: String,
@@ -33,111 +36,10 @@ object Find_Facts {
       (if (thms.nonEmpty) List(Export_Theory.Kind.THM) else Nil)
   }
 
-  def sanitize_body(body: XML.Body): XML.Body = {
-    def trim(source: XML.Body): XML.Body = source match {
-      case XML.Elem(markup, body) :: xs => XML.Elem(markup, trim(body)) :: xs
-      case XML.Text(content) :: xs => XML.Text(content.stripTrailing()) :: xs
-      case Nil => Nil
-    }
-    def filter(body: XML.Body): XML.Body =
-      body.flatMap {
-        case XML.Elem(Markup.Entity(_, _), body) => filter(body)
-        case XML.Elem(markup, body) => List(XML.Elem(markup, filter(body)))
-        case e => List(e)
-      }
-
-    filter(trim(body.reverse).reverse)
-  }
-
-  def get_blocks(
-    version: String,
-    name: Document.Node.Name,
-    browser_info_context: Browser_Info.Context,
-    document_info: Document_Info,
-    theory_context: Export.Theory_Context
-  ): List[Block] = {
-    val elements = Browser_Info.default_elements.copy(entity = Markup.Elements.empty)
-    val node_context = Browser_Info.Node_Context.empty
-
-    val blocks = Thy_Blocks.read_blocks(theory_context)
-    val full_src = blocks.map(_.source).mkString
-    val document = Line.Document(full_src)
-    val num_lines = document.lines.length
-
-    def check(block: Thy_Blocks.Block): Unit = {
-      if (block.spans.isEmpty) error("Empty block: " + block)
-      val line_range = document.range(block.source_range)
-      if (line_range.start.line != block.pos.line)
-        error("Inconsistent start: " + line_range.start.line + ", " + block.pos.line)
-      if (line_range.stop.line != block.pos.line + block.lines)
-        error("Inconsistent stop: " + line_range.stop.line + ", " + (block.pos.line + block.lines))
-      if (block.source != block.source_range.substring(full_src))
-        error("Inconsistent src: " + block.source + ", " + block.source_range.substring(full_src))
-    }
-
-    def get_source(start: Line.Position, stop: Line.Position): String =
-      Text.Range(document.offset(start).get, document.offset(stop).get).substring(document.text)
-
-    val thy_entities =
-      for {
-        entity <- Export_Theory.read_theory(theory_context).entity_iterator.toList
-        if Path.explode(entity.file).canonical == name.path.canonical
-      } yield entity
-
-    val entities = TreeMap.from(thy_entities.groupBy(_.range.start).toList)
-
-    def expand_block(block: Thy_Blocks.Block): List[Thy_Blocks.Block] =
-      block match {
-        case s: Thy_Blocks.Span if s.is_whitespace => Nil
-        case Thy_Blocks.Thy(inner) => inner.flatMap(expand_block)
-        case e@Thy_Blocks.Decl(inner) => e :: inner.flatMap(expand_block)
-        case _ => List(block)
-      }
-
-    val session = theory_context.session_context.session_name
-    val theory = theory_context.theory
-    val theory_info =
-      document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
-    val url = browser_info_context.theory_html(theory_info).implode
-
-    blocks.flatMap(expand_block).map { block =>
-      check(block)
-
-      val symbol_range = block.symbol_range
-      val id = theory + "#" + symbol_range.start + ".." + symbol_range.stop
-      val line_range = document.range(block.source_range)
-
-      val src_before =
-        get_source(Line.Position((line_range.start.line - 5).max(0)), line_range.start)
-      val src = Symbol.decode(block.source)
-      val src_after =
-        get_source(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines)))
-
-      val markup = YXML.string_of_body(sanitize_body(block.body))
-      val html = XML.string_of_body(node_context.make_html(elements, block.body))
-
-      val maybe_entities =
-        entities.range(symbol_range.start, symbol_range.stop).values.toList.flatten.distinct
-      def get_entities(kind: String): List[String] =
-        for {
-          entity <- maybe_entities
-          if entity.export_kind == kind
-          if symbol_range.contains(entity.range)
-        } yield entity.name
-
-      val typs = get_entities(Export_Theory.Kind.TYPE)
-      val consts = get_entities(Export_Theory.Kind.CONST)
-      val thms = get_entities(Export_Theory.Kind.THM)
-
-      Block(id = id, version = version, session = session, theory = theory, file = name.node,
-        url = url, command = block.command, start_line = line_range.start.line, src_before =
-        src_before, src = src, src_after = src_after, markup = markup, html = html, typs = typs,
-        consts = consts, thms = thms)
-    }
-  }
+  case class Blocks(num: Long, elems: List[Block])
 
 
-  /* Solr data model */
+  /** Solr data model **/
 
   object private_data extends Solr.Data("find_facts") {
     /* types */
@@ -256,8 +158,10 @@ object Find_Facts {
     def read_domain(db: Solr.Database, restrict: Solr.Source = Solr.any): Set[String] =
       db.execute_query(Fields.id, List(Fields.id), restrict).map(_.string(Fields.id)).toSet
 
-    def read_blocks(db: Solr.Database): Iterator[Block] = {
-      db.execute_query(Fields.id, stored_fields).map { res =>
+    def read_blocks(db: Solr.Database, query: Solr.Source = Solr.any, num: Int = -1): Blocks = {
+      val results = db.execute_query(Fields.id, stored_fields, query)
+      val it = if (num < 0) results else results.take(num)
+      val blocks = it.map { res =>
         val id = res.string(Fields.id)
         val version = res.string(Fields.version)
         val session = res.string(Fields.session)
@@ -280,6 +184,8 @@ object Find_Facts {
           src_after = src_after, markup = markup, html = html, typs = typs, consts = consts,
           thms = thms)
       }
+
+      Blocks(results.num_found, blocks.toList)
     }
 
     def update_theory(db: Solr.Database, name: String, blocks: List[Block]): Unit =
@@ -316,7 +222,110 @@ object Find_Facts {
   }
 
 
-  /* index blocks */
+  /** indexing **/
+
+  def read_blocks(
+    version: String,
+    name: Document.Node.Name,
+    browser_info_context: Browser_Info.Context,
+    document_info: Document_Info,
+    theory_context: Export.Theory_Context
+  ): List[Block] = {
+    val elements = Browser_Info.default_elements.copy(entity = Markup.Elements.empty)
+    val node_context = Browser_Info.Node_Context.empty
+
+    val blocks = Thy_Blocks.read_blocks(theory_context)
+    val full_src = blocks.map(_.source).mkString
+    val document = Line.Document(full_src)
+    val num_lines = document.lines.length
+
+    def check(block: Thy_Blocks.Block): Unit = {
+      if (block.spans.isEmpty) error("Empty block: " + block)
+      val line_range = document.range(block.source_range)
+      if (line_range.start.line != block.pos.line)
+        error("Inconsistent start: " + line_range.start.line + ", " + block.pos.line)
+      if (line_range.stop.line != block.pos.line + block.lines)
+        error("Inconsistent stop: " + line_range.stop.line + ", " + (block.pos.line + block.lines))
+      if (block.source != block.source_range.substring(full_src))
+        error("Inconsistent src: " + block.source + ", " + block.source_range.substring(full_src))
+    }
+
+    def sanitize_body(body: XML.Body): XML.Body = {
+      def trim(source: XML.Body): XML.Body = source match {
+        case XML.Elem(markup, body) :: xs => XML.Elem(markup, trim(body)) :: xs
+        case XML.Text(content) :: xs => XML.Text(content.stripTrailing()) :: xs
+        case Nil => Nil
+      }
+      def filter(body: XML.Body): XML.Body =
+        body.flatMap {
+          case XML.Elem(Markup.Entity(_, _), body) => filter(body)
+          case XML.Elem(markup, body) => List(XML.Elem(markup, filter(body)))
+          case e => List(e)
+        }
+
+      filter(trim(body.reverse).reverse)
+    }
+
+    def get_source(start: Line.Position, stop: Line.Position): String =
+      Text.Range(document.offset(start).get, document.offset(stop).get).substring(document.text)
+
+    val thy_entities =
+      for {
+        entity <- Export_Theory.read_theory(theory_context).entity_iterator.toList
+        if Path.explode(entity.file).canonical == name.path.canonical
+      } yield entity
+
+    val entities = TreeMap.from(thy_entities.groupBy(_.range.start).toList)
+
+    def expand_block(block: Thy_Blocks.Block): List[Thy_Blocks.Block] =
+      block match {
+        case s: Thy_Blocks.Span if s.is_whitespace => Nil
+        case Thy_Blocks.Thy(inner) => inner.flatMap(expand_block)
+        case e@Thy_Blocks.Decl(inner) => e :: inner.flatMap(expand_block)
+        case _ => List(block)
+      }
+
+    val session = theory_context.session_context.session_name
+    val theory = theory_context.theory
+    val theory_info =
+      document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
+    val url = browser_info_context.theory_html(theory_info).implode
+
+    blocks.flatMap(expand_block).map { block =>
+      check(block)
+
+      val symbol_range = block.symbol_range
+      val id = theory + "#" + symbol_range.start + ".." + symbol_range.stop
+      val line_range = document.range(block.source_range)
+
+      val src_before =
+        get_source(Line.Position((line_range.start.line - 5).max(0)), line_range.start)
+      val src = Symbol.decode(block.source)
+      val src_after =
+        get_source(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines)))
+
+      val markup = YXML.string_of_body(sanitize_body(block.body))
+      val html = XML.string_of_body(node_context.make_html(elements, block.body))
+
+      val maybe_entities =
+        entities.range(symbol_range.start, symbol_range.stop).values.toList.flatten.distinct
+      def get_entities(kind: String): List[String] =
+        for {
+          entity <- maybe_entities
+          if entity.export_kind == kind
+          if symbol_range.contains(entity.range)
+        } yield entity.name
+
+      val typs = get_entities(Export_Theory.Kind.TYPE)
+      val consts = get_entities(Export_Theory.Kind.CONST)
+      val thms = get_entities(Export_Theory.Kind.THM)
+
+      Block(id = id, version = version, session = session, theory = theory, file = name.node,
+        url = url, command = block.command, start_line = line_range.start.line, src_before =
+          src_before, src = src, src_after = src_after, markup = markup, html = html, typs = typs,
+        consts = consts, thms = thms)
+    }
+  }
 
   def index_blocks(
     options: Options,
@@ -344,39 +353,82 @@ object Find_Facts {
                 progress.echo("Theory " + name.theory + " ...")
                 val theory_context = session_context.theory(name.theory)
                 val blocks =
-                  get_blocks(version, name, browser_info_context, document_info, theory_context)
+                  read_blocks(version, name, browser_info_context, document_info, theory_context)
                 Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
               }
             })
         }
-        Find_Facts.private_data.read_blocks(db).toList
+        Find_Facts.private_data.read_blocks(db)
       }
 
-    val num_typs = blocks.flatMap(_.typs).distinct.length
-    val num_consts = blocks.flatMap(_.consts).distinct.length
-    val num_thms = blocks.flatMap(_.thms).distinct.length
-    progress.echo("Blocks: " + blocks.length +
+    val num_typs = blocks.elems.flatMap(_.typs).distinct.length
+    val num_consts = blocks.elems.flatMap(_.consts).distinct.length
+    val num_thms = blocks.elems.flatMap(_.thms).distinct.length
+    progress.echo("Blocks: " + blocks.num +
       ", typs: " + num_typs + ", consts: " + num_consts + ", thms: " + num_thms)
   }
 
-  val isabelle_tool = Isabelle_Tool("find_facts_index", "", Scala_Project.here,
+
+  /* isabelle tool wrapper */
+
+  val isabelle_tool = Isabelle_Tool("find_facts_index", "index sessions for find_facts",
+    Scala_Project.here,
+    { args =>
+      var options = Options.init()
+
+      val getopts = Getopts("""
+  Usage: isabelle find_facts_index [OPTIONS] [SESSIONS ...]
+
+    Options are:
+      -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
+
+    Index sessions for find_facts.
+  """,
+          "o:" -> (arg => options = options + arg))
+
+        val sessions = getopts(args)
+
+        val progress = new Console_Progress()
+
+        index_blocks(options, sessions, progress = progress)
+    })
+
+
+  /** querying **/
+
+  /* find facts */
+
+  def find_facts(options: Options, query: String, progress: Progress = new Progress): Unit = {
+    using(Solr.open_database(Find_Facts.private_data)) { db =>
+      val blocks = Find_Facts.private_data.read_blocks(db, query, 10)
+      progress.echo("Found " + blocks.num + " results. Top 10:")
+      blocks.elems.foreach(block => progress.echo(block.toString))
+    }
+  }
+
+  val isabelle_tool1 = Isabelle_Tool("find_facts", "run find_facts query", Scala_Project.here,
   { args =>
     var options = Options.init()
 
     val getopts = Getopts("""
-Usage: isabelle find_facts_index [OPTIONS] [SESSIONS ...]
+Usage: isabelle find_facts [OPTIONS] QUERY
 
   Options are:
     -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
 
-  Index sessions for find_facts.
+  Run a find_facts query.
 """,
         "o:" -> (arg => options = options + arg))
 
-      val sessions = getopts(args)
+    val more_args = getopts(args)
+    val query = more_args match {
+      case query :: Nil => query
+      case _ => getopts.usage()
+    }
 
-      val progress = new Console_Progress()
+    val progress = new Console_Progress()
 
-      index_blocks(options, sessions, progress = progress)
+    find_facts(options, query, progress)
   })
+
 }
