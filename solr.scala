@@ -127,8 +127,6 @@ object Solr {
     def unique_key: Field = Library.the_single(fields.filter(_.unique_key).toList)
 
     def solr_config: XML.Body = List(XML.elem("config", List(
-      /*XML.elem("dataDir", XML.string("${solr.data.dir:}")),
-      Class("directoryFactory", "$NRTCachingDirectoryFactory", Markup.Name("DirectoryFactory")),*/
       Class("schemaFactory", "ClassicIndexSchemaFactory"),
       XML.elem("luceneMatchVersion", XML.string(Isabelle_System.getenv("SOLR_LUCENE_VERSION"))),
       Class("updateHandler", "DirectUpdateHandler2", body = List(
@@ -246,9 +244,11 @@ object Solr {
   /* database */
 
   def open_database(data: Data, path: Path = solr_home): Database = {
+    java.util.logging.LogManager.getLogManager.reset()
     File.write(Isabelle_System.make_directory(solr_home) + Path.basic("solr.xml"), "<solr/>")
     val conf_dir = solr_home + Path.make(List(data.name, "conf"))
     val server = new EmbeddedSolrServer(path.java_path, data.name)
+
     if (conf_dir.is_dir) server.getCoreContainer.reload(data.name)
     else {
       Isabelle_System.make_directory(conf_dir)
@@ -257,6 +257,7 @@ object Solr {
       data.more_config.foreach((path, content) => File.write(conf_dir + path, content))
       server.getCoreContainer.create(data.name, Map.empty.asJava)
     }
+
     new Database(server)
   }
 
