@@ -9,6 +9,8 @@ package isabelle
 import scala.jdk.CollectionConverters.*
 
 import org.apache.solr.client.solrj.embedded.EmbeddedSolrServer
+import org.apache.solr.client.solrj.request.json.{JsonQueryRequest, TermsFacetMap}
+import org.apache.solr.client.solrj.response.json.{BucketJsonFacet, NestableJsonFacet}
 import org.apache.solr.client.solrj.response.{FacetField, QueryResponse}
 import org.apache.solr.client.solrj.{SolrClient, SolrQuery}
 import org.apache.solr.common.params.{CursorMarkParams, SolrParams}
@@ -25,7 +27,7 @@ object Solr {
 
   type Source = String
 
-  val any: Source = "*:*"
+  val all: Source = "*"
 
   def enclose(s: Source): Source = "(" + s + ")"
 
@@ -55,6 +57,8 @@ object Solr {
   def or(args: Source*): Source = OR(args)
   def not(arg: Source): Source = "NOT " + enclose(arg)
 
+  val query_all: Source = "*:" + all
+
 
   /** solr schema **/
 
@@ -80,8 +84,8 @@ object Solr {
 
   object Type {
     val boolean = Type("boolean", "BoolField")
-    val int = Type("int", "IntPointField", Column_Wise(true))
-    val long = Type("long", "LongPointField", Column_Wise(true))
+    val int = Type("int", "IntPointField")
+    val long = Type("long", "LongPointField")
     val string = Type("string", "StrField")
   }
 
@@ -211,12 +215,6 @@ object Solr {
     def list_string(field: Field): List[String] = list(field)
   }
 
-  class Facet(rep: FacetField) {
-    def name = rep.getName
-    def counts: Map[String, Long] =
-      rep.getValues.asScala.toList.map(count => count.getName -> count.getCount).toMap
-  }
-
   object Results {
     val chunk_size = 1000
   }
@@ -224,30 +222,56 @@ object Solr {
   class Results private[Solr](
     solr: EmbeddedSolrServer,
     query: SolrQuery,
-    private var _cursor: String
+    private var cursor: String
   ) extends Iterator[Result] {
-    
-    def response: QueryResponse =
-      if (solr.getCoreContainer.isShutDown) error("Solr database already closed")
-      else solr.query(query.set(CursorMarkParams.CURSOR_MARK_PARAM, _cursor))
-    
+    private def response: QueryResponse =
+      solr.query(query.set(CursorMarkParams.CURSOR_MARK_PARAM, cursor))
+
     private var _response = response
     private var _iterator = _response.getResults.iterator
 
     def num_found: Long = _response.getResults.getNumFound
+    def next_cursor: String = _response.getNextCursorMark
 
     def hasNext: Boolean = _iterator.hasNext
     def next(): Result = {
       val res = new Result(_iterator.next())
-      
-      if (!_iterator.hasNext && _response.getNextCursorMark != _cursor) {
-        _cursor = _response.getNextCursorMark
+
+      if (!_iterator.hasNext && next_cursor != cursor) {
+        cursor = next_cursor
         _response = response
         _iterator = _response.getResults.iterator
       }
-      
+
       res
     }
+  }
+
+
+  /* facet results */
+
+  class Facet_Result private[Solr](rep: NestableJsonFacet) {
+    def count: Long = rep.getCount
+
+    private def get_bucket[A](bucket: BucketJsonFacet): (A, Long) =
+      bucket.getVal.asInstanceOf[A] -> bucket.getCount
+    private def get_facet[A](field: Field): Map[A, Long] =
+      rep.getBucketBasedFacets(field.name).getBuckets.asScala.map(get_bucket).toMap
+
+    def bool(field: Field): Map[Boolean, Long] = get_facet(field)
+    def int(field: Field): Map[Int, Long] = get_facet(field)
+    def long(field: Field): Map[Long, Long] = get_facet(field)
+    def string(field: Field): Map[String, Long] = get_facet(field)
+  }
+
+
+  /* stat results */
+
+  private def count_field(field: Field): String = field.name + "/count"
+
+  class Stat_Result private[Solr](rep: NestableJsonFacet) {
+    def count: Long = rep.getCount
+    def count(field: Field): Long = rep.getStatValue(count_field(field)).asInstanceOf[Long]
   }
 
 
@@ -274,18 +298,22 @@ object Solr {
   class Database private[Solr](solr: EmbeddedSolrServer) extends AutoCloseable {
     override def close(): Unit = solr.close()
 
-    def execute_query(
+    def execute_query[A, B](
       id: Field,
       fields: List[Field],
-      q: Source = any,
+      q: Source,
+      make_result: Iterator[A] => B,
+      get: Result => A,
       cursor: Option[String] = None
-    ): Results = {
+    ): B = {
       val query = new SolrQuery(q)
         .setFields(fields.map(_.name): _*)
         .setRows(Results.chunk_size)
         .addSort("score", SolrQuery.ORDER.desc)
         .addSort(id.name, SolrQuery.ORDER.asc)
-      new Results(solr, query, cursor.getOrElse(CursorMarkParams.CURSOR_MARK_START))
+
+      val cursor1 = cursor.getOrElse(CursorMarkParams.CURSOR_MARK_START)
+      make_result(new Results(solr, query, cursor1).map(get))
     }
 
     def transaction[A](body: => A): A =
@@ -296,25 +324,30 @@ object Solr {
       }
       catch { case exn: Throwable => solr.rollback(); throw exn }
 
-    def execute_facet_query(
+    def execute_facet_query[A](
       fields: List[Field],
-      q: Source = any,
-      limit: Int = 100
-    ): Map[Field, Facet] = {
-      val query = new SolrQuery(q)
-        .setFacet(true)
-        .setFacetMinCount(1)
-        .setFacetLimit(limit + 1)
-        .setFields(fields.map(_.name): _*)
-        .setRows(0)
+      q: Source,
+      make_result: Facet_Result => A,
+      max_terms: Int = -1
+    ): A = {
+      val query = new JsonQueryRequest().setQuery(q).setLimit(0)
 
-      val result = solr.query(query)
+      for (field <- fields)
+        query.withFacet(field.name, new TermsFacetMap(field.name).setLimit(max_terms))
 
-      (for {
-        field <- fields
-        facet = result.getFacetField(field.name)
-        if facet.getValueCount > 0 && facet.getValueCount < limit + 1
-      } yield field -> Facet(facet)).toMap
+      make_result(new Facet_Result(query.process(solr).getJsonFacetingResponse))
+    }
+
+    def execute_stats_query[A](
+      fields: List[Field],
+      q: Source,
+      make_result: Stat_Result => A
+    ): A = {
+      val query = new JsonQueryRequest().setQuery(q).setLimit(0)
+
+      for (field <- fields) query.withStatFacet(count_field(field), "unique(" + field.name + ")")
+
+      make_result(new Stat_Result(query.process(solr).getJsonFacetingResponse))
     }
 
     def execute_batch_insert(batch: IterableOnce[Document => Unit]): Unit = {

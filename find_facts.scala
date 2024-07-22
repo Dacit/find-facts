@@ -43,7 +43,46 @@ object Find_Facts {
     def names: List[String] = (typs ::: consts ::: thms).distinct
   }
 
-  case class Blocks(num: Long, elems: List[Block])
+
+  /** queries */
+
+  enum Term {
+    case Value(s: String) extends Term
+    case Phrase(s: String) extends Term
+    case Wildcard(s: String) extends Term
+  }
+
+  enum Connective {
+    case Or(terms: List[Term]) extends Connective
+    case Not(term: Term) extends Connective
+  }
+
+  enum Field {
+    case session, theory, command, source, names, consts, typs, thms, kinds
+  }
+
+  sealed trait Filter
+  case class Field_Filter(field: Field, term: Connective) extends Filter
+  case class Any_Filter(term: Connective) extends Filter {
+    def fields: List[Field] = List(Field.session, Field.theory, Field.source, Field.names)
+  }
+
+  object Query {
+    def apply(filters: Filter*): Query = Query(filters.toList)
+  }
+  case class Query(filters: List[Filter])
+
+
+  /* facets */
+
+  case class Stats(
+    results: Long,
+    sessions: Long,
+    theories: Long,
+    commands: Long,
+    consts: Long,
+    typs: Long,
+    thms: Long)
 
 
   /** Solr data model **/
@@ -140,15 +179,21 @@ object Find_Facts {
       val file = Solr.Field("file", Solr.Type.string, Solr.Indexed(false))
       val url_path = Solr.Field("url_path", Solr.Type.string, Solr.Indexed(false))
       val command = Solr.Field("command", Solr.Type.string, Solr.Column_Wise(true))
-      val start_line = Solr.Field("start_line", Solr.Type.int)
+      val start_line = Solr.Field("start_line", Solr.Type.int, Solr.Column_Wise(true))
       val src_before = Solr.Field("src_before", Solr.Type.string, Solr.Indexed(false))
       val src_after = Solr.Field("src_after", Solr.Type.string, Solr.Indexed(false))
       val src = Solr.Field("src", Types.source)
       val markup = Solr.Field("markup", Types.text, Solr.Indexed(false))
       val html = Solr.Field("html", Types.text, Solr.Indexed(false))
-      val typs = Solr.Field("typs", Types.name, Solr.Multi_Valued(true))
       val consts = Solr.Field("consts", Types.name, Solr.Multi_Valued(true))
+      val consts_facet =
+        Solr.Field("consts_facet", Solr.Type.string, Solr.Multi_Valued(true) ::: Solr.Stored(false))
+      val typs = Solr.Field("typs", Types.name, Solr.Multi_Valued(true))
+      val typs_facet =
+        Solr.Field("typs_facet", Solr.Type.string, Solr.Multi_Valued(true) ::: Solr.Stored(false))
       val thms = Solr.Field("thms", Types.name, Solr.Multi_Valued(true))
+      val thms_facet =
+        Solr.Field("thms_facet", Solr.Type.string, Solr.Multi_Valued(true) ::: Solr.Stored(false))
       val names = Solr.Field("names", Types.name, Solr.Multi_Valued(true) ::: Solr.Stored(false))
       val kinds =
         Solr.Field("kinds", Solr.Type.string,
@@ -159,48 +204,56 @@ object Find_Facts {
       Fields.id, Fields.version, Fields.session, Fields.session_facet, Fields.theory,
       Fields.theory_base, Fields.theory_facet, Fields.file, Fields.url_path, Fields.command,
       Fields.start_line, Fields.src_before, Fields.src_after, Fields.src, Fields.markup,
-      Fields.html, Fields.typs, Fields.consts, Fields.thms, Fields.names, Fields.kinds)
+      Fields.html, Fields.consts, Fields.consts_facet, Fields.typs, Fields.typs_facet, Fields.thms,
+      Fields.thms_facet, Fields.names, Fields.kinds)
 
 
     /* operations */
 
-    def read_domain(db: Solr.Database, restrict: Solr.Source = Solr.any): Set[String] =
-      db.execute_query(Fields.id, List(Fields.id), restrict).map(_.string(Fields.id)).toSet
+    def read_domain(db: Solr.Database, query: Solr.Source = Solr.query_all): Set[String] =
+      db.execute_query(Fields.id, List(Fields.id), query, Set.from[String],
+        { res =>
+          res.string(Fields.id)
+        })
 
-    def read_blocks(db: Solr.Database, query: Solr.Source = Solr.any, num: Int = -1): Blocks = {
-      val results = db.execute_query(Fields.id, stored_fields, query)
-      val it = if (num < 0) results else results.take(num)
-      val blocks = it.map { res =>
-        val id = res.string(Fields.id)
-        val version = res.long(Fields.version)
-        val session = res.string(Fields.session)
-        val theory = res.string(Fields.theory)
-        val file = Path.explode(res.string(Fields.file))
-        val url_path = Path.explode(res.string(Fields.url_path))
-        val command = res.string(Fields.command)
-        val start_line = res.int(Fields.start_line)
-        val src_before = res.string(Fields.src_before)
-        val src = res.string(Fields.src)
-        val src_after = res.string(Fields.src_after)
-        val markup = YXML.parse_body(YXML.Source(res.string(Fields.markup)))
-        val html = YXML.parse_body(YXML.Source(res.string(Fields.html)))
-        val typs = res.list_string(Fields.typs)
-        val consts = res.list_string(Fields.consts)
-        val thms = res.list_string(Fields.thms)
+    def to_list[A](it: Iterator[A], max_chunks: Int = -1): List[A] =
+      if (max_chunks < 0) it.toList else it.take(max_chunks * Solr.Results.chunk_size).toList
 
-        Block(id = id, version = version, session = session, theory = theory, file = file,
-          url_path = url_path, command = command, start_line = start_line, src_before = src_before, src = src,
-          src_after = src_after, markup = markup, html = html, typs = typs, consts = consts,
-          thms = thms)
-      }
+    def read_blocks(
+      db: Solr.Database,
+      query: Solr.Source = Solr.query_all,
+      max_chunks: Int = -1
+    ): List[Block] =
+      db.execute_query(Fields.id, stored_fields, query,
+        (it: Iterator[Block]) => to_list(it, max_chunks),
+        { res =>
+          val id = res.string(Fields.id)
+          val version = res.long(Fields.version)
+          val session = res.string(Fields.session)
+          val theory = res.string(Fields.theory)
+          val file = Path.explode(res.string(Fields.file))
+          val url_path = Path.explode(res.string(Fields.url_path))
+          val command = res.string(Fields.command)
+          val start_line = res.int(Fields.start_line)
+          val src_before = res.string(Fields.src_before)
+          val src = res.string(Fields.src)
+          val src_after = res.string(Fields.src_after)
+          val markup = YXML.parse_body(YXML.Source(res.string(Fields.markup)))
+          val html = YXML.parse_body(YXML.Source(res.string(Fields.html)))
+          val consts = res.list_string(Fields.consts)
+          val typs = res.list_string(Fields.typs)
+          val thms = res.list_string(Fields.thms)
 
-      Blocks(results.num_found, blocks.toList)
-    }
+          Block(id = id, version = version, session = session, theory = theory, file = file,
+            url_path = url_path, command = command, start_line = start_line, src_before =
+            src_before, src = src, src_after = src_after, markup = markup, html = html, consts =
+            consts, typs = typs, thms = thms)
+        })
 
-    def update_theory(db: Solr.Database, name: String, blocks: List[Block]): Unit =
+    def update_theory(db: Solr.Database, theory_name: String, blocks: List[Block]): Unit =
       db.transaction {
         val delete =
-          read_domain(db, Solr.filter(Fields.theory, Solr.phrase(name))) -- blocks.map(_.id)
+          read_domain(db, Solr.filter(Fields.theory, Solr.phrase(theory_name))) -- blocks.map(_.id)
 
         if (delete.nonEmpty) db.execute_batch_delete(delete.toList)
 
@@ -211,8 +264,8 @@ object Find_Facts {
             doc.string(Fields.session) = block.session
             doc.string(Fields.session_facet) = block.session
             doc.string(Fields.theory) = block.theory
-            doc.string(Fields.theory_base) = block.theory_base
             doc.string(Fields.theory_facet) = block.theory
+            doc.string(Fields.theory_base) = block.theory_base
             doc.string(Fields.file) = block.file.implode
             doc.string(Fields.url_path) = block.url_path.implode
             doc.string(Fields.command) = block.command
@@ -222,14 +275,89 @@ object Find_Facts {
             doc.string(Fields.src_after) = block.src_after
             doc.string(Fields.markup) = YXML.string_of_body(block.markup)
             doc.string(Fields.html) = YXML.string_of_body(block.html)
-            doc.string(Fields.typs) = block.typs
             doc.string(Fields.consts) = block.consts
+            doc.string(Fields.consts_facet) = block.consts
+            doc.string(Fields.typs) = block.typs
+            doc.string(Fields.typs_facet) = block.typs
             doc.string(Fields.thms) = block.thms
+            doc.string(Fields.thms_facet) = block.thms
             doc.string(Fields.names) = block.names
             doc.string(Fields.kinds) = block.kinds
           })
       }
+
+    def delete_session(db: Solr.Database, session_name: String): Unit =
+      db.transaction {
+        val delete = read_domain(db, Solr.filter(Fields.session, Solr.phrase(session_name)))
+        if (delete.nonEmpty) db.execute_batch_delete(delete.toList)
+      }
+
+    def query_stats(db: Solr.Database, query: Solr.Source): Stats =
+      db.execute_stats_query(
+        List(Fields.session_facet, Fields.theory_facet, Fields.command, Fields.consts_facet,
+          Fields.typs_facet, Fields.thms_facet, Fields.start_line),
+        query,
+        { res =>
+          val results = res.count
+          val sessions = res.count(Fields.session_facet)
+          val theories = res.count(Fields.theory_facet)
+          val commands = res.count(Fields.theory_facet)
+          val consts = res.count(Fields.consts_facet)
+          val typs = res.count(Fields.typs_facet)
+          val thms = res.count(Fields.thms_facet)
+
+          Stats(results, theories, theories, commands, consts, typs, thms)
+        })
+
+
+    /* queries */
+
+    def solr_term(term: Term): Solr.Source =
+      term match {
+        case Term.Value(s) => Solr.term(s)
+        case Term.Wildcard(s) =>
+          val terms = s.split("\\S+").toList.filterNot(_.isBlank)
+          if (terms.isEmpty) Solr.all else Solr.OR(terms.map(Solr.wildcard))
+        case Term.Phrase(s) => Solr.phrase(s)
+      }
+
+    def solr_connective(connective: Connective): Solr.Source =
+      connective match {
+        case Connective.Or(terms) => if (terms.isEmpty) Solr.all else Solr.OR(terms.map(solr_term))
+        case Connective.Not(term) => Solr.not(solr_term(term))
+      }
+      
+    def solr_field(field: Field): Solr.Field =
+      field match {
+        case Field.session => Fields.session
+        case Field.theory => Fields.theory_base
+        case Field.command => Fields.command
+        case Field.source => Fields.src
+        case Field.names => Fields.names
+        case Field.consts => Fields.consts
+        case Field.typs => Fields.typs
+        case Field.thms => Fields.thms
+        case Field.kinds => Fields.kinds
+      }
+        
+    def solr_filter(filter: Filter): Solr.Source =
+      filter match {
+        case Field_Filter(field, term) => Solr.filter(solr_field(field), solr_connective(term))
+        case any@Any_Filter(term) =>
+          Solr.OR(any.fields.map(field => Solr.filter(solr_field(field), solr_connective(term))))
+      }
+
+    def solr_query(query: Query): Solr.Source =
+      if (query.filters.isEmpty) Solr.query_all else Solr.AND(query.filters.map(solr_filter))
   }
+
+  def open_database(): Solr.Database = Solr.open_database(Find_Facts.private_data)
+
+  def query_blocks(db: Solr.Database, query: Query, max_chunks: Int = -1): List[Block] =
+    Find_Facts.private_data.read_blocks(db, Find_Facts.private_data.solr_query(query), max_chunks)
+
+  def query_stats(db: Solr.Database, query: Query): Stats =
+    Find_Facts.private_data.query_stats(db, Find_Facts.private_data.solr_query(query))
 
 
   /** indexing **/
@@ -333,16 +461,16 @@ object Find_Facts {
       val thms = get_entities(Export_Theory.Kind.THM)
 
       Block(id = id, version = version, session = session, theory = theory, file = name.path,
-        url_path = url_path, command = block.command, start_line = line_range.start.line, src_before =
-        src_before, src = src, src_after = src_after, markup = markup, html = html, typs = typs,
-        consts = consts, thms = thms)
+        url_path = url_path, command = block.command, start_line = line_range.start.line,
+        src_before = src_before, src = src, src_after = src_after, markup = markup, html = html,
+        consts = consts, typs = typs, thms = thms)
     }
   }
 
   def index_blocks(
     options: Options,
     sessions: List[String],
-    version: String = "",
+    clean: Boolean = false,
     progress: Progress = new Progress
   ): Unit = {
     val store = Store(options)
@@ -352,31 +480,39 @@ object Find_Facts {
     val deps = Sessions.Deps.load(session_structure)
     val browser_info_context = Browser_Info.context(session_structure)
 
-    Isabelle_System.rm_tree(Solr.solr_home)
+    if (clean) {
+      progress.echo("Cleaning " + Solr.solr_home.implode)
+      Isabelle_System.rm_tree(Solr.solr_home)
+    }
 
-    val blocks =
-      using(Solr.open_database(Find_Facts.private_data)) { db =>
-        using(Export.open_database_context(store)) { database_context =>
-          val document_info = Document_Info.read(database_context, deps, sessions)
-          sessions.foreach(session =>
-            using(database_context.open_session0(session)) { session_context =>
-              progress.echo("Session " + session + " ...")
-              deps(session).proper_session_theories.foreach { name =>
-                progress.echo("Theory " + name.theory + " ...")
-                val theory_context = session_context.theory(name.theory)
-                val blocks = read_blocks(name, browser_info_context, document_info, theory_context)
-                Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
-              }
-            })
+    if (sessions.isEmpty) progress.echo("Nothing to index")
+    else {
+      val stats =
+        using(open_database()) { db =>
+          using(Export.open_database_context(store)) { database_context =>
+            val document_info = Document_Info.read(database_context, deps, sessions)
+            sessions.foreach(session =>
+              using(database_context.open_session0(session)) { session_context =>
+                progress.echo("Session " + session + " ...")
+                Find_Facts.private_data.delete_session(db, session)
+                deps(session).proper_session_theories.foreach { name =>
+                  progress.echo("Theory " + name.theory + " ...")
+                  val theory_context = session_context.theory(name.theory)
+                  val blocks =
+                    read_blocks(name, browser_info_context, document_info, theory_context)
+                  Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
+                }
+              })
+          }
+
+          val query =
+            Query(Field_Filter(Field.session, Connective.Or(sessions.map(Term.Phrase(_)))))
+          Find_Facts.query_stats(db, query)
         }
-        Find_Facts.private_data.read_blocks(db)
-      }
 
-    val num_typs = blocks.elems.flatMap(_.typs).distinct.length
-    val num_consts = blocks.elems.flatMap(_.consts).distinct.length
-    val num_thms = blocks.elems.flatMap(_.thms).distinct.length
-    progress.echo("Blocks: " + blocks.num +
-      ", typs: " + num_typs + ", consts: " + num_consts + ", thms: " + num_thms)
+      progress.echo("Indexed " + stats.results + " blocks with " +
+        stats.consts + " consts, " + stats.typs + " typs, " + stats.thms + " thms")
+    }
   }
 
 
@@ -385,23 +521,26 @@ object Find_Facts {
   val isabelle_tool = Isabelle_Tool("find_facts_index", "index sessions for find_facts",
     Scala_Project.here,
     { args =>
+      var clean = false
       var options = Options.init()
 
       val getopts = Getopts("""
   Usage: isabelle find_facts_index [OPTIONS] [SESSIONS ...]
 
     Options are:
+      -c           clean previous index
       -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
 
     Index sessions for find_facts.
   """,
+        "c" -> (_ => clean = true),
         "o:" -> (arg => options = options + arg))
 
       val sessions = getopts(args)
 
       val progress = new Console_Progress()
 
-      index_blocks(options, sessions, progress = progress)
+      index_blocks(options, sessions, clean = clean, progress = progress)
     })
 
 
@@ -409,11 +548,11 @@ object Find_Facts {
 
   /* find facts */
 
-  def find_facts(options: Options, query: String, progress: Progress = new Progress): Unit = {
+  def find_facts(options: Options, progress: Progress = new Progress): Unit = {
     using(Solr.open_database(Find_Facts.private_data)) { db =>
-      val blocks = Find_Facts.private_data.read_blocks(db, query, 10)
-      progress.echo("Found " + blocks.num + " results. Top 10:")
-      blocks.elems.foreach(block => progress.echo(block.toString))
+      val stats = Find_Facts.query_stats(db, Query(Nil))
+      progress.echo("Contains " + stats.results + " blocks with " +
+        stats.consts + " consts, " + stats.typs + " typs, " + stats.thms + " thms")
     }
   }
 
@@ -435,14 +574,11 @@ Usage: isabelle find_facts [OPTIONS] QUERY
         "o:" -> (arg => options = options + arg))
 
     val more_args = getopts(args)
-    val query = more_args match {
-      case query :: Nil => query
-      case _ => getopts.usage()
-    }
+    if (more_args.nonEmpty) getopts.usage()
 
     val progress = new Console_Progress()
 
-    find_facts(options, query, progress)
+    find_facts(options, progress)
   })
 
 }
