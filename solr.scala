@@ -86,6 +86,8 @@ object Solr {
     val boolean = Type("boolean", "BoolField")
     val int = Type("int", "IntPointField")
     val long = Type("long", "LongPointField")
+    val float = Type("float", "FloatPointField")
+    val double = Type("double", "DoublePointField")
     val string = Type("string", "StrField")
   }
 
@@ -177,6 +179,16 @@ object Solr {
       def update(field: Field, x: Option[Long]): Unit = rep.addField(field.name, x.orNull)
       def update(field: Field, x: List[Long]): Unit = rep.addField(field.name, x.toArray)
     }
+    object float {
+      def update(field: Field, x: Float): Unit = rep.addField(field.name, x)
+      def update(field: Field, x: Option[Float]): Unit = rep.addField(field.name, x.orNull)
+      def update(field: Field, x: List[Float]): Unit = rep.addField(field.name, x.toArray)
+    }
+    object double {
+      def update(field: Field, x: Double): Unit = rep.addField(field.name, x)
+      def update(field: Field, x: Option[Double]): Unit = rep.addField(field.name, x.orNull)
+      def update(field: Field, x: List[Double]): Unit = rep.addField(field.name, x.toArray)
+    }
     object string {
       def update(field: Field, x: String): Unit = rep.addField(field.name, x)
       def update(field: Field, x: Option[String]): Unit = rep.addField(field.name, x.orNull)
@@ -188,7 +200,10 @@ object Solr {
   /* results */
 
   class Result private[Solr](rep: SolrDocument) {
-    private def single[A](field: Field): A = rep.getFieldValue(field.name).asInstanceOf[A]
+    private def single[A](field: Field): A = {
+      val elem = rep.getFieldValue(field.name)
+      if (elem == null) error("No such field: " + field.name) else elem.asInstanceOf[A]
+    }
     private def option[A](field: Field): Option[A] = {
       val elem = rep.getFieldValue(field.name)
       if (elem == null) None else Some(elem.asInstanceOf[A])
@@ -209,6 +224,14 @@ object Solr {
     def long(field: Field): Long = single(field)
     def get_long(field: Field): Option[Long] = option(field)
     def list_long(field: Field): List[Long] = list(field)
+
+    def float(field: Field): Float = single(field)
+    def get_float(field: Field): Option[Float] = option(field)
+    def list_float(field: Field): List[Float] = list(field)
+
+    def double(field: Field): Double = single(field)
+    def get_double(field: Field): Option[Double] = option(field)
+    def list_double(field: Field): List[Double] = list(field)
 
     def string(field: Field): String = single(field)
     def get_string(field: Field): Option[String] = option(field)

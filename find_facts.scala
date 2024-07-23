@@ -200,7 +200,7 @@ object Find_Facts {
           Solr.Multi_Valued(true) ::: Solr.Column_Wise(true) ::: Solr.Stored(false))
     }
 
-    override lazy val fields: Solr.Fields = Solr.Fields(
+    lazy val fields: Solr.Fields = Solr.Fields(
       Fields.id, Fields.version, Fields.session, Fields.session_facet, Fields.theory,
       Fields.theory_base, Fields.theory_facet, Fields.file, Fields.url_path, Fields.command,
       Fields.start_line, Fields.src_before, Fields.src_after, Fields.src, Fields.markup,
@@ -326,7 +326,7 @@ object Find_Facts {
         case Connective.Or(terms) => if (terms.isEmpty) Solr.all else Solr.OR(terms.map(solr_term))
         case Connective.Not(term) => Solr.not(solr_term(term))
       }
-      
+
     def solr_field(field: Field): Solr.Field =
       field match {
         case Field.session => Fields.session
@@ -339,7 +339,7 @@ object Find_Facts {
         case Field.thms => Fields.thms
         case Field.kinds => Fields.kinds
       }
-        
+
     def solr_filter(filter: Filter): Solr.Source =
       filter match {
         case Field_Filter(field, term) => Solr.filter(solr_field(field), solr_connective(term))
