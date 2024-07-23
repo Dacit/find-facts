@@ -6,6 +6,7 @@ requirements = \
 sources = \
   component_elm.scala \
   component_solr.scala \
+  elm.scala \
   find_facts.scala \
   find_facts_tools.scala \
   solr.scala \
