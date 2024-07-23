@@ -697,6 +697,7 @@ object Find_Facts {
   def find_facts(options: Options, port: Int, progress: Progress = new Progress): Unit = {
     val presentation_base = Url(options.string("isabelle_presentation_url"))
     val encode = new Encode(presentation_base)
+    val frontend = Elm.Project(Path.explode("$FIND_FACTS_HOME/web")).build_html()
 
     using(Solr.open_database(Find_Facts.private_data)) { db =>
       val stats = Find_Facts.query_stats(db, Query(Nil))
@@ -706,7 +707,8 @@ object Find_Facts {
       val server =
         HTTP.server(port, name = "", services = List(
           new HTTP.Service("app") {
-            def apply(request: HTTP.Request): Option[HTTP.Response] = ???
+            def apply(request: HTTP.Request): Option[HTTP.Response] =
+              Some(HTTP.Response.html(frontend))
           },
           new REST_Service(Path.explode("api/blocks"), progress) {
             def handle(body: JSON.T): Option[JSON.T] =
