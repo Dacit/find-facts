@@ -4,6 +4,7 @@ requirements = \
   env:ISABELLE_SCALA_JAR \
   env:SOLR_JARS
 sources = \
+  component_elm.scala \
   component_solr.scala \
   find_facts.scala \
   find_facts_tools.scala \
