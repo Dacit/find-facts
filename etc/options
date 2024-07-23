@@ -1,0 +1,4 @@
+section "Find Facts"
+
+option isabelle_presentation_url : string = "https://isabelle.in.tum.de/dist/library"
+  -- "base url for Isabelle HTML presentation"

@@ -238,10 +238,6 @@ object Solr {
     def list_string(field: Field): List[String] = list(field)
   }
 
-  object Results {
-    val chunk_size = 1000
-  }
-
   class Results private[Solr](
     solr: EmbeddedSolrServer,
     query: SolrQuery,
@@ -321,22 +317,22 @@ object Solr {
   class Database private[Solr](solr: EmbeddedSolrServer) extends AutoCloseable {
     override def close(): Unit = solr.close()
 
-    def execute_query[A, B](
+    def execute_query[A](
       id: Field,
       fields: List[Field],
       q: Source,
-      make_result: Iterator[A] => B,
-      get: Result => A,
-      cursor: Option[String] = None
-    ): B = {
+      cursor: Option[String],
+      chunk_size: Int,
+      make_result: Results => A,
+    ): A = {
       val query = new SolrQuery(q)
         .setFields(fields.map(_.name): _*)
-        .setRows(Results.chunk_size)
+        .setRows(chunk_size)
         .addSort("score", SolrQuery.ORDER.desc)
         .addSort(id.name, SolrQuery.ORDER.asc)
 
       val cursor1 = cursor.getOrElse(CursorMarkParams.CURSOR_MARK_START)
-      make_result(new Results(solr, query, cursor1).map(get))
+      make_result(new Results(solr, query, cursor1))
     }
 
     def transaction[A](body: => A): A =
