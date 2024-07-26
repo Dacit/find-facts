@@ -19,6 +19,6 @@ parse_query query parser =
       case String.split "=" s |> List.map Url.percentDecode of
         [Just k, Just v] -> Just (k, v)
         _ -> Nothing
-    params = if String.isEmpty query then [] else String.split "&" query
+    params = if query == "" then [] else String.split "&" query
     pairs = params |> List.map pair |> Maybe.combine
   in pairs |> Maybe.map (Parser.parse parser) |> Maybe.join
