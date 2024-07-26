@@ -86,7 +86,7 @@ object Find_Facts {
     typs: Long,
     thms: Long)
 
-  case class Facet(
+  case class Facets(
     sessions: Map[String, Long],
     theories: Map[String, Long],
     commands: Map[String, Long],
@@ -334,7 +334,7 @@ object Find_Facts {
           Stats(results, theories, theories, commands, consts, typs, thms)
         })
 
-    def query_facet(db: Solr.Database, query: Solr.Source): Facet =
+    def query_facets(db: Solr.Database, query: Solr.Source): Facets =
       db.execute_facet_query(
         List(Fields.session_facet, Fields.theory_facet, Fields.command, Fields.kinds,
           Fields.consts_facet, Fields.typs_facet, Fields.thms_facet),
@@ -348,7 +348,7 @@ object Find_Facts {
           val typs = res.string(Fields.typs_facet)
           val thms = res.string(Fields.thms_facet)
 
-          Facet(sessions, theories, commands, kinds, consts, typs, thms)
+          Facets(sessions, theories, commands, kinds, consts, typs, thms)
         })
 
     /* queries */
@@ -400,8 +400,8 @@ object Find_Facts {
   def query_stats(db: Solr.Database, query: Query): Stats =
     Find_Facts.private_data.query_stats(db, Find_Facts.private_data.solr_query(query))
 
-  def query_facet(db: Solr.Database, query: Query): Facet =
-    Find_Facts.private_data.query_facet(db, Find_Facts.private_data.solr_query(query))
+  def query_facet(db: Solr.Database, query: Query): Facets =
+    Find_Facts.private_data.query_facets(db, Find_Facts.private_data.solr_query(query))
 
 
   /** indexing **/
@@ -629,7 +629,7 @@ object Find_Facts {
 
   /* responses and encoding */
 
-  case class Result(blocks: Blocks, facet: Facet)
+  case class Result(blocks: Blocks, facets: Facets)
 
   class Encode(url_base: Url) {
     def block(block: Block): JSON.T =
@@ -653,7 +653,7 @@ object Find_Facts {
         "blocks" -> blocks.blocks.map(block),
         "cursor" -> blocks.cursor)
 
-    def facet(facet: Facet): JSON.T =
+    def facets(facet: Facets): JSON.T =
       JSON.Object(
         "sessions" -> facet.sessions,
         "theories" -> facet.theories,
@@ -666,7 +666,7 @@ object Find_Facts {
     def result(result: Result): JSON.T =
       JSON.Object(
         "blocks" -> blocks(result.blocks),
-        "facet" -> facet(result.facet))
+        "facet" -> facets(result.facets))
   }
 
 
