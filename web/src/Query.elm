@@ -95,6 +95,6 @@ decode_blocks =
 decode_facets: Decode.Decoder Facets
 decode_facets = Decode.dict (Decode.dict Decode.int)
 
-decode_results: Decode.Decoder Result
-decode_results =
+decode_result: Decode.Decoder Result
+decode_result =
   Decode.map2 Result (Decode.field "blocks" decode_blocks) (Decode.field "facets" decode_facets)

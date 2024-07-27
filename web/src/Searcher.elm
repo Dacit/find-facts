@@ -2,8 +2,8 @@
 
 Searcher component: Url-encoded 'dry' query state enriched by facet information from query.
 -}
-module Searcher
-  exposing (Search, Model, empty, init, search_params, search_parser, Msg, update, view)
+module Searcher exposing (
+  Search, Model, empty, init, search_params, search_parser, Msg, update, view, search_query)
 
 
 import Array exposing (Array)
