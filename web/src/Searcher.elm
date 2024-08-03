@@ -2,8 +2,8 @@
 
 Searcher component: Url-encoded 'dry' query state enriched by facet information from query.
 -}
-module Searcher exposing (
-  Search, Model, empty, init, search_params, search_parser, Msg, update, view, search_query)
+module Searcher exposing (Search, Model, empty, init, search_params, search_parser, Msg, update,
+ set_results, view, search_query)
 
 
 import Array exposing (Array)
@@ -121,28 +121,28 @@ update_facet field value selected facet0 =
     facet2 = {facet1 | terms = facet1.terms |> (if selected then Set.insert else Set.remove) value}
   in if Set.isEmpty facet2.terms then Nothing else Just facet2
 
-update: Msg -> Model -> (Model, Bool)
+update: Msg -> Model -> Model
 update msg model =
   let
     search = model.search
-    (search1, commit) =
+    search1 =
       case msg of
-        Any_Input value -> ({search | any_filter = value}, False)
+        Any_Input value -> {search | any_filter = value}
         Add_Filter field ->
-         ({search | filters = search.filters |> Array.push (empty_filter field)}, True)
+         {search | filters = search.filters |> Array.push (empty_filter field)}
         Filter_Input i value ->
-         ({search | filters = search.filters |> Array.update i (update_filter value)}, False)
-        Change_Filter i ->
-         ({search | filters = search.filters |> Array.update i change_filter}, True)
-        Remove_Filter i -> ({search | filters = search.filters |> Array.removeAt i}, True)
+          {search | filters = search.filters |> Array.update i (update_filter value)}
+        Change_Filter i -> {search | filters = search.filters |> Array.update i change_filter}
+        Remove_Filter i -> {search | filters = search.filters |> Array.removeAt i}
         Select_Facet field value selected ->
-          let
-            update_facets = Dict.update field (update_facet field value selected)
-          in ({search | facets = search.facets |> update_facets}, True)
-        _ -> (search, False)
+          {search | facets = search.facets |> Dict.update field (update_facet field value selected)}
+        _ -> search
   in case msg of
-    Open_Add_Filter -> ({model | search = search1, add_filter = True}, commit)
-    _ -> ({model | search = search1}, commit)
+    Open_Add_Filter -> {model | search = search1, add_filter = True}
+    _ -> {model | search = search1}
+
+set_results: Query.Result -> Model -> Model
+set_results res model = {model | facets = Just res.facets}
 
 
 {- view -}

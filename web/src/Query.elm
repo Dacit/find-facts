@@ -17,6 +17,29 @@ type Atom = Value String | Phrase String | Wildcard String
 type Term = Or (List Atom) | Not Atom
 type Filter = Any_Filter Term | Field_Filter String Term
 type alias Query = {filters: List Filter}
+type alias Query_Blocks = {query: Query, cursor: String}
+
+empty_atom: Atom -> Bool
+empty_atom atom =
+  case atom of
+    Value s -> String.words s |> List.isEmpty
+    Phrase s -> String.words s |> List.isEmpty
+    Wildcard s -> String.words s |> List.isEmpty
+
+empty_term: Term -> Bool
+empty_term term =
+  case term of
+    Or atoms -> atoms |> List.all empty_atom
+    Not atom ->  empty_atom atom
+
+empty_filter: Filter -> Bool
+empty_filter filter =
+  case filter of
+    Any_Filter term -> empty_term term
+    Field_Filter _ term -> empty_term term
+
+empty_query: Query -> Bool
+empty_query query = query.filters |> List.all empty_filter
 
 
 {- json encoding -}
@@ -44,6 +67,11 @@ encode_filter filter =
 encode_query: Query -> Encode.Value
 encode_query query =
   Encode.object [("filters", Encode.list encode_filter query.filters)]
+
+encode_query_blocks: Query_Blocks -> Encode.Value
+encode_query_blocks query_blocks =
+  Encode.object
+    [("query", encode_query query_blocks.query), ("cursor", Encode.string query_blocks.cursor)]
 
 
 {- results -}
