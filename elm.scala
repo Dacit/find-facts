@@ -8,6 +8,10 @@ package isabelle
 
 import java.io.{File => JFile}
 
+import scala.jdk.CollectionConverters._
+
+import org.jsoup.nodes.Element
+
 
 object Elm {
   private lazy val elm_home =
@@ -16,20 +20,25 @@ object Elm {
   private lazy val exec = Path.explode(elm_home) + Path.basic("elm")
 
   object Project {
-    def apply(dir: Path, main: Path = Path.explode("src/Main.elm")): Project = {
+    def apply(
+      name: String,
+      dir: Path,
+      main: Path = Path.explode("src/Main.elm"),
+      output: Path = Path.explode("index.html")
+    ): Project = {
       if (!dir.is_dir) error("Project directory does not exist: " + dir)
       val main_file = dir + main
       if (!main_file.is_file) error("Main elm file does not exist: " + main_file)
-      new Project(dir, main)
+      new Project(name, dir, main, dir + output)
     }
   }
 
-  class Project private(dir: Path, main: Path = Path.explode("src/Main.elm")) {
+  class Project private(name: String, dir: Path, main: Path, output: Path) {
     val definition = JSON.parse(File.read(dir + Path.basic("elm.json")))
     val src_dirs =
       JSON.strings(definition, "source-directories").getOrElse(
         error("Missing source directories in elm.json"))
-
+    
     def sources: List[JFile] =
       for {
         src_dir <- src_dirs
@@ -44,15 +53,39 @@ object Elm {
       meta_info ::: source_digest
     }
 
-    def build_html(): String = {
-      val output = sources_shasum.digest.toString + ".html"
-      val cmd =
-        File.bash_path(exec) + " make " + File.bash_path(main) + " --optimize --output=" + output
-      Isabelle_System.bash(cmd, cwd = dir).check
-      val file = dir + Path.explode(output)
-      val result = File.read(file)
-      Isabelle_System.rm_tree(file)
-      result
+    def get_digest: SHA1.Digest =
+      Exn.capture {
+        val html = HTML.parse_document(File.read(output))
+        val elem = html.head.getElementsByTag("meta").attr("name", "shasum")
+        Library.the_single(elem.eachAttr("content").asScala.toList)
+      } match {
+        case Exn.Res(s) => SHA1.fake_digest(s)
+        case _ => SHA1.digest_empty
+      }
+
+    def build_html(progress: Progress): String = {
+      val digest = sources_shasum.digest
+      if (digest == get_digest) File.read(output)
+      else {
+        progress.echo("### Building " + name + " (" + output.canonical.implode + ") ...")
+
+        val cmd =
+          File.bash_path(exec) + " make " + File.bash_path(main) + " --optimize --output=" + output
+        val res = Isabelle_System.bash(cmd, cwd = dir)
+
+        if (!res.ok) {
+          progress.echo(res.err)
+          error("Failed to compile Elm sources")
+        }
+
+        val file = HTML.parse_document(File.read(output))
+        file.head.appendChild(
+          Element("meta").attr("name", "shasum").attr("content", digest.toString))
+        val html = file.html
+        File.write(output, html)
+
+        html
+      }
     }
   }
 }

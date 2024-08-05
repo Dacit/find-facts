@@ -1,3 +1,8 @@
+/*  Title:      Tools/Find_Facts.scala
+    Author:     Fabian Huch, TU Muenchen
+
+Full-text search engine for Isabelle (including web server), using Solr as backend.
+*/
 package isabelle
 
 
@@ -666,13 +671,13 @@ object Find_Facts {
     def result(result: Result): JSON.T =
       JSON.Object(
         "blocks" -> blocks(result.blocks),
-        "facet" -> facets(result.facets))
+        "facets" -> facets(result.facets))
   }
 
 
   /* find facts */
 
-  abstract class REST_Service(path: Path, progress: Progress, method: String = "GET")
+  abstract class REST_Service(path: Path, progress: Progress, method: String = "POST")
     extends HTTP.Service(path.implode, method = method) {
     def handle(body: JSON.T): Option[JSON.T]
 
@@ -682,9 +687,17 @@ object Find_Facts {
           json <-
             Exn.capture(JSON.parse(request.input.text)) match {
               case Exn.Res(json) => Some(json)
-              case _ => None
+              case _ =>
+                progress.echo("Could not parse: " + quote(request.input.text), verbose = true)
+                None
             }
-          res <- handle(json)
+          res <-
+            handle(json) match {
+              case Some(res) => Some(res)
+              case None =>
+                progress.echo("Invalid request: " + JSON.Format(json), verbose = true)
+                None
+            }
         } yield HTTP.Response(Bytes(JSON.Format(res)), content_type = "application/json")
       }
       catch { case exn: Throwable =>
@@ -697,7 +710,8 @@ object Find_Facts {
   def find_facts(options: Options, port: Int, progress: Progress = new Progress): Unit = {
     val presentation_base = Url(options.string("isabelle_presentation_url"))
     val encode = new Encode(presentation_base)
-    val frontend = Elm.Project(Path.explode("$FIND_FACTS_HOME/web")).build_html()
+    val project = Elm.Project("Find_Facts", Path.explode("$FIND_FACTS_HOME/web"))
+    val frontend = project.build_html(progress)
 
     using(Solr.open_database(Find_Facts.private_data)) { db =>
       val stats = Find_Facts.query_stats(db, Query(Nil))
@@ -745,6 +759,7 @@ object Find_Facts {
   { args =>
     var options = Options.init()
     var port = 8080
+    var verbose = false
 
     val getopts = Getopts("""
 Usage: isabelle find_facts [OPTIONS]
@@ -752,16 +767,18 @@ Usage: isabelle find_facts [OPTIONS]
   Options are:
     -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
     -p PORT      explicit web server port
+    -v           verbose server
 
   Run a find_facts query.
 """,
         "o:" -> (arg => options = options + arg),
-        "p:" -> (arg => port = Value.Int.parse(arg)))
+        "p:" -> (arg => port = Value.Int.parse(arg)),
+        "v" -> (_ => verbose = true))
 
     val more_args = getopts(args)
     if (more_args.nonEmpty) getopts.usage()
 
-    val progress = new Console_Progress()
+    val progress = new Console_Progress(verbose = verbose)
 
     find_facts(options, port, progress)
   })
