@@ -101,14 +101,12 @@ push_url key url = Navigation.replaceUrl key (Url.toString url)
 
 get_result: Query -> Cmd Msg
 get_result query =
-  Http.request {method = "GET", headers = [], timeout = Nothing, tracker = Nothing, url =
-    "/api/query", expect = Http.expectJson (Query_Result query) Query.decode_result, body =
-    query |> Query.encode_query |> Http.jsonBody}
+  Http.post {url="/api/query", expect = Http.expectJson (Query_Result query) Query.decode_result,
+    body= query |> Query.encode_query |> Http.jsonBody}
 
 get_blocks : Query -> String -> (Result Http.Error Query.Blocks -> Results.Msg) -> Cmd Results.Msg
 get_blocks query cursor msg =
-  Http.request {method = "GET", headers = [], timeout = Nothing, tracker = Nothing, url =
-    "/api/blocks", expect = Http.expectJson msg Query.decode_blocks, body =
+  Http.post {url = "/api/blocks", expect = Http.expectJson msg Query.decode_blocks, body =
     {query = query, cursor = cursor} |> Query.encode_query_blocks |> Http.jsonBody}
 
 
