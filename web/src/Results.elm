@@ -2,19 +2,26 @@
 
 Search results. -}
 
-module Results exposing (Model, init, Msg, update, set_loading, set_results, set_error, view)
+module Results exposing (Model, init, Msg(..), update, set_loading, set_results, set_error, view)
 
 
 import Html exposing (..)
-import Html.Attributes exposing (href)
+import Html.Attributes exposing (style)
+import Html.Extra as Html
+import Html.Lazy as Lazy
+import Html.Parser
+import Html.Parser.Util
 import Http
 import Query exposing (Block)
 import Library exposing (..)
+import String.Extra as String
 
 
 {- model -}
 
-type alias Model = {get_blocks: String -> (Result Http.Error Query.Blocks -> Msg) -> Cmd Msg, state: State}
+type alias Model =
+  {get_blocks: String -> (Result Http.Error Query.Blocks -> Msg) -> Cmd Msg, state: State}
+
 type State = Empty | Loading | Error String | Results Query.Blocks Bool
 
 init: (String -> (Result Http.Error Query.Blocks -> Msg) -> Cmd Msg) -> Model
@@ -49,20 +56,24 @@ set_error err model = {model | state = Error (get_msg err)}
 
 {- view -}
 
-view_block block =
-  p [] [
-    text block.theory,
-    a [href block.url] [],
-    text block.html]
+view_html html =
+  case Html.Parser.run html of
+    Ok nodes -> span [] (Html.Parser.Util.toVirtualDom nodes)
+    _ -> text (String.stripTags html)
+
+view_block block = span [] [p [] [text block.theory], pre [] [view_html block.html]]
+
+view_results: Query.Blocks -> Bool -> Html Msg
+view_results blocks loading =
+  div [style "height" "100%"] (
+    text ("Found " ++ String.fromInt blocks.num_found ++ " results") ::
+    (blocks.blocks |> List.map (Lazy.lazy view_block) |> List.intersperse (br [] [])) ++
+    if_proper loading (text "Loading..."))
 
 view: Model -> Html Msg
 view model =
   case model.state of
-    Empty -> div [] []
+    Empty -> Html.nothing
     Loading -> text "Loading..."
     Error msg -> text msg
-    Results blocks loading ->
-      div [] (
-        text ("Found " ++ String.fromInt blocks.num_found) ::
-        (blocks.blocks |> List.map view_block) ++
-        if_proper loading (text "Loading..."))
+    Results blocks loading -> Lazy.lazy2 view_results blocks loading
