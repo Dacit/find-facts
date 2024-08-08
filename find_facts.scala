@@ -398,6 +398,11 @@ object Find_Facts {
 
   def open_database(): Solr.Database = Solr.open_database(Find_Facts.private_data)
 
+  def query_block(db: Solr.Database, id: String): Option[Block] = {
+    val query = Solr.filter(Find_Facts.private_data.Fields.id, Solr.phrase(id))
+    Find_Facts.private_data.read_blocks(db, query).blocks.headOption
+  }
+
   def query_blocks(db: Solr.Database, query: Query, cursor: Option[String] = None): Blocks =
     Find_Facts.private_data.read_blocks(db, Find_Facts.private_data.solr_query(query),
       cursor = cursor)
@@ -629,6 +634,8 @@ object Find_Facts {
         query <- JSON.value(json, "query", query)
         cursor <- JSON.string(json, "cursor")
       } yield Query_Blocks(query, cursor)
+
+    def query_block(json: JSON.T): Option[String] = for (id <- JSON.string(json, "id")) yield id
   }
 
 
@@ -729,12 +736,17 @@ object Find_Facts {
             def apply(request: HTTP.Request): Option[HTTP.Response] =
               Some(HTTP.Response.html(frontend))
           },
+          new REST_Service(Path.explode("api/block"), progress) {
+            def handle(body: JSON.T): Option[JSON.T] =
+              for {
+                request <- Parse.query_block(body)
+                block <- query_block(db, request)
+              } yield encode.block(block)
+          },
           new REST_Service(Path.explode("api/blocks"), progress) {
             def handle(body: JSON.T): Option[JSON.T] =
-              for (request <- Parse.query_blocks(body)) yield {
-                val blocks = query_blocks(db, request.query, Some(request.cursor))
-                encode.blocks(blocks)
-              }
+              for (request <- Parse.query_blocks(body))
+              yield encode.blocks(query_blocks(db, request.query, Some(request.cursor)))
           },
           new REST_Service(Path.explode("api/query"), progress) {
             def handle(body: JSON.T): Option[JSON.T] =
