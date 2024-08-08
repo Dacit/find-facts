@@ -2,7 +2,8 @@
 
 Search results. -}
 
-module Results exposing (Model, init, Msg(..), update, set_loading, set_results, set_error, view)
+module Results exposing (Model, empty, set_loading, set_error, set_result, set_load_more,
+  set_loaded, get_maybe_cursor, view)
 
 
 import Html exposing (..)
@@ -19,39 +20,45 @@ import String.Extra as String
 
 {- model -}
 
-type alias Model =
-  {get_blocks: String -> (Result Http.Error Query.Blocks -> Msg) -> Cmd Msg, state: State}
+type Model = Empty | Loading | Error String | Results Query.Blocks Bool
 
-type State = Empty | Loading | Error String | Results Query.Blocks Bool
-
-init: (String -> (Result Http.Error Query.Blocks -> Msg) -> Cmd Msg) -> Model
-init get_blocks = Model get_blocks Empty
+empty: Model
+empty = Empty
 
 
-{- update -}
+{- updates -}
 
-type Msg = Load_More | Loaded (Result Http.Error Query.Blocks)
+set_loading: Model
+set_loading = Loading
 
-update: Model -> Msg -> (Model, Cmd Msg)
-update model msg =
-  case model.state of
-    Results blocks _ ->
-      case msg of
-        Load_More -> ({model | state = Results blocks True}, model.get_blocks blocks.cursor Loaded)
-        Loaded (Result.Ok blocks1) ->
-          let blocks2 = {blocks1 | blocks = blocks.blocks ++ blocks1.blocks}
-          in ({model | state = Results blocks2 False}, Cmd.none)
-        Loaded (Result.Err error) -> ({model | state = Error (get_msg error)}, Cmd.none)
-    _ -> (model, Cmd.none)
+set_error: Http.Error -> Model
+set_error err = Error (get_msg err)
 
-set_loading: Model -> Model
-set_loading model = {model | state = Loading}
+set_result: Query.Result -> Model
+set_result res = Results res.blocks False
 
-set_results: Query.Result -> Model ->  Model
-set_results res model = {model | state = Results res.blocks False }
+set_load_more: Model -> Model
+set_load_more model =
+  case model of
+    Results blocks _ -> Results blocks True
+    _ -> model
 
-set_error: Http.Error -> Model -> Model
-set_error err model = {model | state = Error (get_msg err)}
+set_loaded: Result Http.Error Query.Blocks -> Model -> Model
+set_loaded result model =
+  case (result, model) of
+    (Result.Ok blocks1, Results blocks _) ->
+      let blocks2 = {blocks1 | blocks = blocks.blocks ++ blocks1.blocks}
+      in Results blocks2 False
+    (Result.Err err, _) -> Error (get_msg err)
+    _ -> model
+
+get_maybe_cursor: Model -> Maybe String
+get_maybe_cursor model =
+  case model of
+    Results blocks loading ->
+      if blocks.num_found <= List.length blocks.blocks || loading then Nothing
+      else Just blocks.cursor
+    _ -> Nothing
 
 
 {- view -}
@@ -63,16 +70,20 @@ view_html html =
 
 view_block block = span [] [p [] [text block.theory], pre [] [view_html block.html]]
 
-view_results: Query.Blocks -> Bool -> Html Msg
+view_results: Query.Blocks -> Bool -> Html Never
 view_results blocks loading =
-  div [style "height" "100%"] (
+  let
+    num = List.length blocks.blocks
+    loaded_text = "Loaded " ++ (String.fromInt num) ++ "/" ++ (String.fromInt blocks.num_found) ++
+      if_proper (blocks.num_found > num) ". Scroll for more ..."
+  in div [style "height" "100%"] (
     text ("Found " ++ String.fromInt blocks.num_found ++ " results") ::
     (blocks.blocks |> List.map (Lazy.lazy view_block) |> List.intersperse (br [] [])) ++
-    if_proper loading (text "Loading..."))
+    [text (if loading then "Loading..." else loaded_text)])
 
-view: Model -> Html Msg
+view: Model -> Html Never
 view model =
-  case model.state of
+  case model of
     Empty -> Html.nothing
     Loading -> text "Loading..."
     Error msg -> text msg

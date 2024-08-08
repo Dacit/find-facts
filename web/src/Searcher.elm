@@ -3,14 +3,14 @@
 Searcher component: Url-encoded 'dry' query state enriched by facet information from query.
 -}
 module Searcher exposing (Search, Model, empty, init, search_params, search_parser, Msg, update,
- set_results, view, search_query)
+ set_result, view, search_query)
 
 
 import Array exposing (Array)
 import Array.Extra as Array
 import Dict exposing (Dict)
-import Html exposing (Html, button, div, fieldset, form, hr, input, legend, menu, menuitem, p, text)
-import Html.Attributes exposing (placeholder, value)
+import Html exposing (..)
+import Html.Attributes exposing (placeholder, selected, value)
 import Html.Events exposing (onClick, onInput)
 import Library exposing (..)
 import Parser exposing (Parser)
@@ -65,7 +65,7 @@ facet_params facet =
 
 search_params: Search -> List QueryParameter
 search_params search =
-  if_proper (search.any_filter /= "") (Url.Builder.string "q" search.any_filter) ++
+  list_if (search.any_filter /= "") (Url.Builder.string "q" search.any_filter) ++
     (search.filters |> Array.toList |> List.concatMap filter_params) ++
     (search.facets |> Dict.values |> List.sortBy .field |> List.concatMap facet_params)
 
@@ -141,8 +141,8 @@ update msg model =
     Open_Add_Filter -> {model | search = search1, add_filter = True}
     _ -> {model | search = search1}
 
-set_results: Query.Result -> Model -> Model
-set_results res model = {model | facets = Just res.facets}
+set_result: Query.Result -> Model -> Model
+set_result res model = {model | facets = Just res.facets}
 
 
 {- view -}
@@ -173,7 +173,9 @@ view_facet facets (field, facet) =
     Nothing -> div [] (text field :: (Set.toList facet.terms |> List.map (view_term Nothing True)))
 
 view_add_filter =
-  menu [] (search_fields |> List.map (\field -> menuitem [onClick (Add_Filter field)] [text field]))
+  select [onInput Add_Filter] (
+    option [selected True] [text "Add filter"] ::
+    (search_fields |> List.map (\field -> option [value field] [text field])))
 
 view: Model -> Html Msg
 view model =
@@ -187,8 +189,7 @@ view model =
         |> Array.toIndexedList
         |> List.map (view_filter model.facets)
         |> List.intersperse (hr [] [])) ++
-        [button [onClick Open_Add_Filter] [text "add filter"]] ++
-        (if_proper model.add_filter view_add_filter)),
+        [view_add_filter]),
       p [] (text "Drill-down" :: (
         Dict.toList model.search.facets
         |> List.sortBy Tuple.first
@@ -220,6 +221,6 @@ facet_query facet =
 search_query: Search -> Query.Query
 search_query search =
   Query.Query (
-    (if_proper (search.any_filter /= "") (search.any_filter |> term_query |> Query.Any_Filter)) ++
+    (list_if (search.any_filter /= "") (search.any_filter |> term_query |> Query.Any_Filter)) ++
     (Array.toList search.filters |> List.map filter_query) ++
     (Dict.toList search.facets |> List.map Tuple.second |> List.map facet_query))

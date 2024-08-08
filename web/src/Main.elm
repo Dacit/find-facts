@@ -39,13 +39,13 @@ update_search previous search =
     Search searcher query results ->
       let
         query1 = Searcher.search_query search
-        results1 = if should_query (Just query) query1 then Results.set_loading results else results
+        results1 = if should_query (Just query) query1 then Results.set_loading else results
       in Search {searcher | search = search} query1 results1
     _ ->
      let
        query = Searcher.search_query search
-       results0 = Results.init (get_blocks query)
-       results = if should_query Nothing query then Results.set_loading results0 else results0
+       results0 = Results.empty
+       results = if should_query Nothing query then Results.set_loading else results0
      in Search (Searcher.init search) query results
 
 init: () -> Url -> Navigation.Key -> (Model, Cmd Msg)
@@ -63,8 +63,7 @@ init _ url key =
     Nothing ->
       let
         search = Searcher.empty
-        page = Search (Searcher.init search) (Searcher.search_query search)
-          (Results.init (get_blocks {filters = []}))
+        page = Search (Searcher.init search) (Searcher.search_query search) Results.empty
         url_cmd = page |> url_encode url |> push_url key
       in (Model key url page Delay.empty, url_cmd)
 
@@ -106,12 +105,12 @@ push_url key url = Navigation.replaceUrl key (Url.toString url)
 get_result: Query -> Cmd Msg
 get_result query =
   Http.post {url="/api/query", expect = Http.expectJson (Query_Result query) Query.decode_result,
-    body= query |> Query.encode_query |> Http.jsonBody}
+    body = query |> Query.encode_query |> Http.jsonBody}
 
-get_blocks: Query -> String -> (Result Http.Error Query.Blocks -> Results.Msg) -> Cmd Results.Msg
-get_blocks query cursor msg =
-  Http.post {url = "/api/blocks", expect = Http.expectJson msg Query.decode_blocks, body =
-    {query = query, cursor = cursor} |> Query.encode_query_blocks |> Http.jsonBody}
+get_blocks: Query -> String -> Cmd Msg
+get_blocks query cursor =
+  Http.post {url = "/api/blocks", expect = Http.expectJson (Query_Blocks query) Query.decode_blocks,
+    body = {query = query, cursor = cursor} |> Query.encode_query_blocks |> Http.jsonBody}
 
 
 {- update -}
@@ -121,9 +120,9 @@ type Msg =
   Link_Clicked Browser.UrlRequest |
   Url_Changed Url |
   Searcher Searcher.Msg |
-  Results Results.Msg |
   Delay (Delay.Msg Msg) |
   Query_Result Query (Result Http.Error Query.Result) |
+  Query_Blocks Query (Result Http.Error Query.Blocks) |
   Scroll_Event Scroll_Info
 
 query_delay: Query -> Delay.Delay Msg
@@ -168,26 +167,26 @@ update msg model =
           in (model, cmd)
         _ -> (model, Cmd.none)
 
-    Results msg1 ->
-      case model.page of
-        Search search query results ->
-          let (results1, cmd) = Results.update results msg1
-          in ({model | page = Search search query results1}, Cmd.map Results cmd)
-        _ -> (model, Cmd.none)
-
-    Query_Result query result ->
+    Query_Result query res ->
       case model.page of
         Search search query1 results ->
-          case result of
-            Result.Ok res ->
+          case res of
+            Result.Ok result ->
               if query /= query1 then (model, Cmd.none)
               else
                 let
-                  search1 = Searcher.set_results res search
-                  results1 = Results.set_results res results
+                  search1 = Searcher.set_result result search
+                  results1 = Results.set_result result
                 in ({model | page = Search search1 query1 results1}, Cmd.none)
             Result.Err err ->
-              ({model | page = Search search query (Results.set_error err results)}, Cmd.none)
+              ({model | page = Search search query (Results.set_error err)}, Cmd.none)
+        _ -> (model, Cmd.none)
+
+    Query_Blocks query res ->
+      case model.page of
+        Search search query1 results ->
+          if query /= query1 then (model, Cmd.none)
+          else ({model | page = Search search query (Results.set_loaded res results)}, Cmd.none)
         _ -> (model, Cmd.none)
 
     Scroll_Event scroll ->
@@ -195,8 +194,11 @@ update msg model =
       else
         case model.page of
           Search search query results ->
-            let (results1, cmd) = Results.update results Results.Load_More
-            in ({model | page = Search search query results1}, Cmd.map Results cmd)
+            case Results.get_maybe_cursor results of
+              Nothing -> (model, Cmd.none)
+              Just cursor ->
+                let results1 = Results.set_load_more results
+                in ({model | page = Search search query results1}, get_blocks query cursor)
           _ -> (model, Cmd.none)
 
 
@@ -226,4 +228,4 @@ view model =
       title = "Find Facts | Search",
       body = [
         div [Events.on "scroll" decode_scroll, style "height" "100%", style "overflow" "scroll"]
-          [Searcher.view search |> Html.map Searcher, Results.view results |> Html.map Results]]}
+          [Searcher.view search |> Html.map Searcher, Results.view results |> Html.map never]]}
