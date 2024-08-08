@@ -68,7 +68,7 @@ init _ url key =
       let
         search = Searcher.empty
         page = Search (Searcher.init search) (Searcher.search_query search) Results.empty
-        url_cmd = page |> url_encode url |> push_url key
+        url_cmd = page |> url_encode url |> push_url True key
       in (Model key url page Delay.empty, url_cmd)
 
 
@@ -108,8 +108,9 @@ url_decode url page =
 
 {- commands -}
 
-push_url: Navigation.Key -> Url -> Cmd msg
-push_url key url = Navigation.replaceUrl key (Url.toString url)
+push_url: Bool -> Navigation.Key -> Url -> Cmd msg
+push_url save key url =
+  (if save then Navigation.pushUrl else Navigation.replaceUrl) key (Url.toString url)
 
 get_result: Query -> Cmd Msg
 get_result query =
@@ -149,7 +150,7 @@ update msg model =
   case msg of
     Link_Clicked urlRequest ->
       case urlRequest of
-        Browser.Internal url -> (model, Navigation.pushUrl model.nav_key (Url.toString url))
+        Browser.Internal url -> (model, push_url True model.nav_key url)
         Browser.External href -> (model, Navigation.load href)
 
     Url_Changed url ->
@@ -180,12 +181,12 @@ update msg model =
             model1 = Searcher.update msg1 search
             query1 = Searcher.search_query model1.search
             page = Search model1 query1 results
-            cmd = url_encode model.url page |> push_url model.nav_key
+            cmd = url_encode model.url page |> push_url False model.nav_key
           in (model, cmd)
         _ -> (model, Cmd.none)
 
     Results (Results.Selected id) ->
-      (model, url_encode model.url (id |> Details.init |> Detail) |> push_url model.nav_key)
+      (model, url_encode model.url (id |> Details.init |> Detail) |> push_url True model.nav_key)
 
     Query_Result query res ->
       case model.page of
