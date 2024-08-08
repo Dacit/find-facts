@@ -55,7 +55,7 @@ object Solr {
 
   def and(args: Source*): Source = AND(args)
   def or(args: Source*): Source = OR(args)
-  def not(arg: Source): Source = "NOT " + enclose(arg)
+  def not(arg: Source): Source = enclose("NOT " + arg)
 
   val query_all: Source = "*:" + all
 

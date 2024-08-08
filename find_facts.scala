@@ -11,9 +11,6 @@ import scala.collection.immutable.TreeMap
 
 
 object Find_Facts {
-  val index_name = "find_facts"
-
-
   /** blocks **/
 
   object Kind {
@@ -260,7 +257,7 @@ object Find_Facts {
       db: Solr.Database,
       query: Solr.Source,
       cursor: Option[String] = None,
-      chunk_size: Int = 100
+      chunk_size: Int = 10
     ): Blocks =
       db.execute_query(Fields.id, stored_fields, query, cursor, chunk_size,
         { results =>
@@ -336,7 +333,7 @@ object Find_Facts {
           val typs = res.count(Fields.typs_facet)
           val thms = res.count(Fields.thms_facet)
 
-          Stats(results, theories, theories, commands, consts, typs, thms)
+          Stats(results, sessions, theories, commands, consts, typs, thms)
         })
 
     def query_facets(db: Solr.Database, query: Solr.Source): Facets =
@@ -400,7 +397,8 @@ object Find_Facts {
   def open_database(): Solr.Database = Solr.open_database(Find_Facts.private_data)
 
   def query_blocks(db: Solr.Database, query: Query, cursor: Option[String] = None): Blocks =
-    Find_Facts.private_data.read_blocks(db, Find_Facts.private_data.solr_query(query))
+    Find_Facts.private_data.read_blocks(db, Find_Facts.private_data.solr_query(query),
+      cursor = cursor)
 
   def query_stats(db: Solr.Database, query: Query): Stats =
     Find_Facts.private_data.query_stats(db, Find_Facts.private_data.solr_query(query))
@@ -710,7 +708,14 @@ object Find_Facts {
   def find_facts(options: Options, port: Int, progress: Progress = new Progress): Unit = {
     val presentation_base = Url(options.string("isabelle_presentation_url"))
     val encode = new Encode(presentation_base)
-    val project = Elm.Project("Find_Facts", Path.explode("$FIND_FACTS_HOME/web"))
+    val project = Elm.Project("Find_Facts", Path.explode("$FIND_FACTS_HOME/web"), head = List(
+      HTML.style("html,body {height: 100%}"),
+      HTML.style_file("https://www.isa-afp.org/css/isabelle.css"),
+      HTML.style_file("https://fonts.googleapis.com/css?family=Roboto:300,400,500|Material+Icons"),
+      HTML.style_file(
+        "https://unpkg.com/material-components-web-elm@9.1.0/dist/material-components-web-elm.min.css"),
+      HTML.script_file(
+        "https://unpkg.com/material-components-web-elm@9.1.0/dist/material-components-web-elm.min.js")))
     val frontend = project.build_html(progress)
 
     using(Solr.open_database(Find_Facts.private_data)) { db =>

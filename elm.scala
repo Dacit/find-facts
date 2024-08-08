@@ -24,16 +24,17 @@ object Elm {
       name: String,
       dir: Path,
       main: Path = Path.explode("src/Main.elm"),
-      output: Path = Path.explode("index.html")
+      output: Path = Path.explode("index.html"),
+      head: XML.Body = Nil
     ): Project = {
       if (!dir.is_dir) error("Project directory does not exist: " + dir)
       val main_file = dir + main
       if (!main_file.is_file) error("Main elm file does not exist: " + main_file)
-      new Project(name, dir, main, dir + output)
+      new Project(name, dir, main, dir + output, head)
     }
   }
 
-  class Project private(name: String, dir: Path, main: Path, output: Path) {
+  class Project private(name: String, dir: Path, main: Path, output: Path, head: XML.Body) {
     val definition = JSON.parse(File.read(dir + Path.basic("elm.json")))
     val src_dirs =
       JSON.strings(definition, "source-directories").getOrElse(
@@ -48,9 +49,10 @@ object Elm {
 
     def sources_shasum: SHA1.Shasum = {
       val meta_info = SHA1.shasum_meta_info(SHA1.digest(JSON.Format(definition)))
+      val head_digest = SHA1.shasum(SHA1.digest(XML.string_of_body(head)), "head")
       val source_digest =
         SHA1.shasum_sorted(for (file <- sources) yield SHA1.digest(file) -> file.getCanonicalPath)
-      meta_info ::: source_digest
+      meta_info ::: head_digest ::: source_digest
     }
 
     def get_digest: SHA1.Digest =
@@ -81,6 +83,7 @@ object Elm {
         val file = HTML.parse_document(File.read(output))
         file.head.appendChild(
           Element("meta").attr("name", "shasum").attr("content", digest.toString))
+        file.head.append(XML.string_of_body(head))
         val html = file.html
         File.write(output, html)
 
