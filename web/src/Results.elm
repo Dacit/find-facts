@@ -2,20 +2,19 @@
 
 Search results. -}
 
-module Results exposing (Model, empty, set_loading, set_error, set_result, set_load_more,
+module Results exposing (Model, empty, Msg(..), set_loading, set_error, set_result, set_load_more,
   set_loaded, get_maybe_cursor, view)
 
 
 import Html exposing (..)
 import Html.Attributes exposing (style)
+import Html.Events exposing (onClick)
 import Html.Extra as Html
 import Html.Lazy as Lazy
-import Html.Parser
-import Html.Parser.Util
 import Http
 import Query exposing (Block)
 import Library exposing (..)
-import String.Extra as String
+import Utils exposing (view_html)
 
 
 {- model -}
@@ -27,6 +26,8 @@ empty = Empty
 
 
 {- updates -}
+
+type Msg = Selected String
 
 set_loading: Model
 set_loading = Loading
@@ -63,14 +64,9 @@ get_maybe_cursor model =
 
 {- view -}
 
-view_html html =
-  case Html.Parser.run html of
-    Ok nodes -> span [] (Html.Parser.Util.toVirtualDom nodes)
-    _ -> text (String.stripTags html)
+view_block block =
+  span [] [p [] [text block.theory], pre [onClick (Selected block.id)] [view_html block.html]]
 
-view_block block = span [] [p [] [text block.theory], pre [] [view_html block.html]]
-
-view_results: Query.Blocks -> Bool -> Html Never
 view_results blocks loading =
   let
     num = List.length blocks.blocks
@@ -81,7 +77,7 @@ view_results blocks loading =
     (blocks.blocks |> List.map (Lazy.lazy view_block) |> List.intersperse (br [] [])) ++
     [text (if loading then "Loading..." else loaded_text)])
 
-view: Model -> Html Never
+view: Model -> Html Msg
 view model =
   case model of
     Empty -> Html.nothing

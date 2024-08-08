@@ -73,6 +73,9 @@ encode_query_blocks query_blocks =
   Encode.object
     [("query", encode_query query_blocks.query), ("cursor", Encode.string query_blocks.cursor)]
 
+encode_query_block: String -> Encode.Value
+encode_query_block id = Encode.object [("id", Encode.string id)]
+
 
 {- results -}
 

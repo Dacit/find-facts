@@ -2,6 +2,7 @@ module Main exposing (init, main, subscriptions, update, view)
 
 
 import Delay
+import Details
 import Html.Attributes exposing (style)
 import Html.Events as Events
 import Http
@@ -27,7 +28,7 @@ main =
 
 {- model -}
 
-type Page = Not_Found | About | Search Searcher.Model Query Results.Model
+type Page = Not_Found | About | Detail Details.Model | Search Searcher.Model Query Results.Model
 type alias Model = {nav_key: Navigation.Key, url: Url, page: Page, delay: Delay.Model}
 
 should_query : Maybe Query -> Query -> Bool
@@ -78,15 +79,20 @@ url_encode url page =
   case page of
     Not_Found -> {url | fragment = Nothing}
     About -> {url | fragment = Just "about"}
-    Search model _ _ ->
-      let
-        params = Searcher.search_params model.search
+    Detail details ->
+      {url | fragment = Just ("details" ++ Url.Builder.toQuery (Details.params details))}
+    Search searcher _ _ ->
+      let params = Searcher.search_params searcher.search
       in {url | fragment = Just ("search" ++ (Url.Builder.toQuery params))}
 
 fragment_decode : (Searcher.Search -> Page) -> String -> Page
 fragment_decode make_search1 fragment =
   case String.split "?" fragment of
     ["about"] -> About
+    "details" :: qs ->
+      Utils.parse_query (String.join "?" qs) Details.parser
+      |> Maybe.map Detail
+      |> Maybe.withDefault Not_Found
     "search" :: qs ->
       Utils.parse_query (String.join "?" qs) Searcher.search_parser
       |> Maybe.map make_search1
@@ -115,6 +121,11 @@ get_blocks query cursor =
   Http.post {url = "/api/blocks", expect = Http.expectJson (Query_Blocks query) Query.decode_blocks,
     body = {query = query, cursor = cursor} |> Query.encode_query_blocks |> Http.jsonBody}
 
+get_block: String -> Cmd Msg
+get_block id =
+  Http.post {url = "/api/block", expect = Http.expectJson (Query_Block id) Query.decode_block,
+    body = id |> Query.encode_query_block |> Http.jsonBody}
+
 
 {- update -}
 
@@ -124,8 +135,10 @@ type Msg =
   Url_Changed Url |
   Searcher Searcher.Msg |
   Delay (Delay.Msg Msg) |
+  Results (Results.Msg) |
   Query_Result Query (Result Http.Error Query.Result) |
   Query_Blocks Query (Result Http.Error Query.Blocks) |
+  Query_Block String (Result Http.Error Query.Block) |
   Scroll_Event Scroll_Info
 
 query_delay: Query -> Delay.Delay Msg
@@ -150,10 +163,11 @@ update msg model =
           case page of
             Search _ query _ ->
               if should_query query0 query
-                then Delay.invoke model.delay (query_delay query)
+                then Delay.invoke model.delay (query_delay query) |> Tuple.mapSecond (Cmd.map Delay)
                 else (model.delay, Cmd.none)
+            Detail details -> (model.delay, get_block (Details.get_id details))
             _ -> (model.delay, Cmd.none)
-      in ({model | url = url, page = page, delay = delay}, Cmd.map Delay cmd)
+      in ({model | url = url, page = page, delay = delay}, cmd)
 
     Delay msg1 ->
       let (delay, cmd) = Delay.update model.delay msg1
@@ -169,6 +183,9 @@ update msg model =
             cmd = url_encode model.url page |> push_url model.nav_key
           in (model, cmd)
         _ -> (model, Cmd.none)
+
+    Results (Results.Selected id) ->
+      (model, url_encode model.url (id |> Details.init |> Detail) |> push_url model.nav_key)
 
     Query_Result query res ->
       case model.page of
@@ -190,6 +207,13 @@ update msg model =
         Search search query1 results ->
           if query /= query1 then (model, Cmd.none)
           else ({model | page = Search search query (Results.set_loaded res results)}, Cmd.none)
+        _ -> (model, Cmd.none)
+
+    Query_Block id res ->
+      case model.page of
+        Detail details ->
+          if id /= (Details.get_id details) then (model, Cmd.none)
+          else ({model | page = Detail (Details.set_loaded res details)}, Cmd.none)
         _ -> (model, Cmd.none)
 
     Scroll_Event scroll ->
@@ -227,8 +251,10 @@ view model =
   case model.page of
     Not_Found -> {title = "404 Not Found", body = [text "404 Not Found"]}
     About -> {title = "Find Facts | About", body = [text ""]}
+    Detail details ->
+      {title = "Find Facts | Details", body = [Details.view details |> Html.map never]}
     Search search _ results -> {
       title = "Find Facts | Search",
       body = [
         div [Events.on "scroll" decode_scroll, style "height" "100%", style "overflow" "scroll"]
-          [Searcher.view search |> Html.map Searcher, Results.view results |> Html.map never]]}
+          [Searcher.view search |> Html.map Searcher, Results.view results |> Html.map Results]]}

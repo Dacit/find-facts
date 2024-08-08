@@ -19,7 +19,7 @@ import Set exposing (Set)
 import Url.Builder exposing (QueryParameter)
 import Maybe exposing (Maybe)
 import Maybe.Extra as Maybe
-import Utils exposing (Query_Param)
+import Utils exposing (Query_Param, parse_key)
 
 
 {- config -}
@@ -77,8 +77,6 @@ search_params search =
 
 
 {- Url parsing -}
-
-parse_key cond = Parser.elem (Tuple.first >> cond)
 
 filter_parser: Parser Query_Param Filter
 filter_parser =
