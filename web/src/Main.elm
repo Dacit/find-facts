@@ -39,7 +39,10 @@ update_search previous search =
     Search searcher query results ->
       let
         query1 = Searcher.search_query search
-        results1 = if should_query (Just query) query1 then Results.set_loading else results
+        results1 =
+          if should_query (Just query) query1 then Results.set_loading
+          else if Query.empty_query query1 then Results.empty
+          else results
       in Search {searcher | search = search} query1 results1
     _ ->
      let
@@ -169,15 +172,15 @@ update msg model =
 
     Query_Result query res ->
       case model.page of
-        Search search query1 results ->
+        Search search query1 _ ->
           case res of
             Result.Ok result ->
               if query /= query1 then (model, Cmd.none)
               else
                 let
                   search1 = Searcher.set_result result search
-                  results1 = Results.set_result result
-                in ({model | page = Search search1 query1 results1}, Cmd.none)
+                  results = Results.set_result result
+                in ({model | page = Search search1 query1 results}, Cmd.none)
             Result.Err err ->
               ({model | page = Search search query (Results.set_error err)}, Cmd.none)
         _ -> (model, Cmd.none)

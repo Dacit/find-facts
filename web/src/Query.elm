@@ -54,7 +54,7 @@ encode_atom atom =
 encode_term: Term -> Encode.Value
 encode_term term =
   case term of
-    Or atoms -> Encode.object [("or", Encode.list encode_atom atoms)]
+    Or atoms -> Encode.object [("in", Encode.list encode_atom atoms)]
     Not atom -> Encode.object [("not", encode_atom atom)]
 
 encode_filter: Filter -> Encode.Value

@@ -22,6 +22,12 @@ import Maybe.Extra as Maybe
 import Utils exposing (Query_Param)
 
 
+{- config -}
+
+max_facet_terms = 5
+max_search_facet_terms = 20
+
+
 {- fields -}
 
 sessionN = "session"
@@ -29,14 +35,14 @@ theoryN = "theory"
 commandN = "command"
 sourceN = "source"
 nameN = "name"
-constantN = "constant"
-typeN = "type"
-theoremN = "theorem"
-kindN = "kind"
+constantN = "consts"
+typeN = "typs"
+theoremN = "thms"
+kindN = "kinds"
 
 search_fields = [sessionN, theoryN, commandN, sourceN, nameN, constantN, typeN, theoremN]
 search_facet_fields = [sessionN, theoryN, commandN, constantN, typeN, theoremN]
-facet_fields = [sessionN, theoremN, commandN, constantN, typeN, theoremN, kindN]
+facet_fields = [sessionN, theoryN, commandN, constantN, typeN, theoremN, kindN]
 
 
 {- search components -}
@@ -147,30 +153,36 @@ set_result res model = {model | facets = Just res.facets}
 
 {- view -}
 
-view_filter facets (i, filter) =
-  fieldset [] [
-    legend [] [text <| filter.field],
-    button [onClick (Change_Filter i) ] [text (if filter.exclude then "not" else "in")],
-    input [placeholder "search ...", value filter.value, onInput (Filter_Input i)] [],
-    button [onClick (Remove_Filter i)] [text "x"]]
-
-view_facet facets (field, facet) =
+view_filter_select i counts =
   let
-    term_string count term =
-      (term ++ (count |> Maybe.map (\i -> " (" ++ String.fromInt i ++ ")") |> Maybe.withDefault ""))
+    view_option (name, count) =
+      option [value name] [text (name ++ " (" ++ String.fromInt count ++ ")")]
+  in select [onInput (Filter_Input i)] (option [selected True] [text "Select"] ::
+    (counts |> Dict.toList |> List.sortBy Tuple.first |> List.map view_option))
 
-    view_term count enabled term =
-      button [onClick (Select_Facet field term (not enabled))] [text (term_string count term)]
- 
-  in case facets |> Maybe.map (Dict.get field) |> Maybe.join of
-    Just facet_data -> div [] (text field :: (
-      Dict.keys facet_data
-      |> Set.fromList
-      |> Set.union facet.terms
-      |> Set.toList
-      |> List.map (\term ->
-        view_term (Dict.get term facet_data) (Set.member term facet.terms) term)))
-    Nothing -> div [] (text field :: (Set.toList facet.terms |> List.map (view_term Nothing True)))
+view_filter counts (i, filter) =
+  let
+    counts1 = if Dict.size counts > max_search_facet_terms then Dict.empty else counts
+    select = List.member filter.field search_facet_fields && not (Dict.isEmpty counts1)
+  in fieldset [] ([
+    legend [] [text <| filter.field],
+    button [onClick (Change_Filter i) ] [text (if filter.exclude then "not" else "in")]] ++
+    list_if select (view_filter_select i counts1) ++ [
+    input [placeholder "search ...", value filter.value, onInput (Filter_Input i)] [],
+    button [onClick (Remove_Filter i)] [text "x"]])
+
+view_term field count enabled term =
+  let term_string = term ++ maybe_proper count (\i -> " (" ++ String.fromInt i ++ ")")
+  in button [onClick (Select_Facet field term (not enabled))] [text term_string]
+
+view_facet field counts selected =
+  let
+    counts1 = if (Dict.size counts > max_facet_terms) then Dict.empty else counts
+    terms = Dict.keys counts1 |> Set.fromList |> Set.union selected |> Set.toList |> List.sort
+    view_term1 term = view_term field (Dict.get term counts1) (Set.member term selected) term
+  in
+    if List.isEmpty terms then Nothing
+    else Just (div [] (text field :: (terms |> List.map view_term1)))
 
 view_add_filter =
   select [onInput Add_Filter] (
@@ -179,7 +191,13 @@ view_add_filter =
 
 view: Model -> Html Msg
 view model =
-  form [] [
+  let
+    get_counts field =
+      model.facets |> Maybe.map (Dict.get field) |> Maybe.join |> Maybe.withDefault Dict.empty
+    get_selected field =
+      model.search.facets |> Dict.get field |> Maybe.map .terms |> Maybe.withDefault Set.empty
+    view_facet1 field = view_facet field (get_counts field) (get_selected field)
+  in form [] [
     p [] [
       input [placeholder "search anywhere ...", value model.search.any_filter, onInput Any_Input]
         [],
@@ -187,14 +205,11 @@ view model =
         text "Filters" :: (
         model.search.filters
         |> Array.toIndexedList
-        |> List.map (view_filter model.facets)
+        |> List.map (\(i, filter) -> view_filter (get_counts filter.field) (i, filter))
         |> List.intersperse (hr [] [])) ++
         [view_add_filter]),
-      p [] (text "Drill-down" :: (
-        Dict.toList model.search.facets
-        |> List.sortBy Tuple.first
-        |> List.map (view_facet model.facets)
-        |> List.intersperse (hr [] [])))]]
+      p [] (text "Drill-down" ::
+        (facet_fields |> List.filterMap view_facet1 |> List.intersperse (hr [] [])))]]
 
 
 {- queries -}
