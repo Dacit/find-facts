@@ -89,9 +89,9 @@ object Find_Facts {
     thms: Long)
 
   case class Facets(
-    sessions: Map[String, Long],
-    theories: Map[String, Long],
-    commands: Map[String, Long],
+    session: Map[String, Long],
+    theory: Map[String, Long],
+    command: Map[String, Long],
     kinds: Map[String, Long],
     consts: Map[String, Long],
     typs: Map[String, Long],
@@ -358,6 +358,7 @@ object Find_Facts {
 
     def solr_atom(atom: Atom): Solr.Source =
       atom match {
+        case Atom.Value(s) if s.isEmpty => Solr.all
         case Atom.Value(s) => Solr.term(s)
         case Atom.Wildcard(s) =>
           val terms = s.split("\\S+").toList.filterNot(_.isBlank)
@@ -605,7 +606,7 @@ object Find_Facts {
         JSON.string(json, "wildcard").map(Atom.Wildcard(_))
 
     def term(json: JSON.T): Option[Term] =
-      JSON.list(json, "or", atom).map(Term.Or(_)) orElse
+      JSON.list(json, "in", atom).map(Term.Or(_)) orElse
         JSON.value(json, "not", atom).map(Term.Not(_))
 
     def field(name: String): Option[Field] = Field.values.find(_.toString == name)
@@ -659,9 +660,9 @@ object Find_Facts {
 
     def facets(facet: Facets): JSON.T =
       JSON.Object(
-        "sessions" -> facet.sessions,
-        "theories" -> facet.theories,
-        "commands" -> facet.commands,
+        "session" -> facet.session,
+        "theory" -> facet.theory,
+        "command" -> facet.command,
         "kinds" -> facet.kinds,
         "consts" -> facet.consts,
         "typs" -> facet.typs,
@@ -732,7 +733,6 @@ object Find_Facts {
             def handle(body: JSON.T): Option[JSON.T] =
               for (request <- Parse.query_blocks(body)) yield {
                 val blocks = query_blocks(db, request.query, Some(request.cursor))
-
                 encode.blocks(blocks)
               }
           },
