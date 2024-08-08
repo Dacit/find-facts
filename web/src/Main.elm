@@ -29,6 +29,12 @@ main =
 {- model -}
 
 type Page = Not_Found | About | Detail Details.Model | Search Searcher.Model Query Results.Model
+
+home: Page
+home =
+  let search = Searcher.empty
+  in Search (Searcher.init search) (Searcher.search_query search) Results.empty
+
 type alias Model = {nav_key: Navigation.Key, url: Url, page: Page, delay: Delay.Model}
 
 should_query : Maybe Query -> Query -> Bool
@@ -55,6 +61,7 @@ update_search previous search =
 init: () -> Url -> Navigation.Key -> (Model, Cmd Msg)
 init _ url key =
   case url.fragment of
+    Nothing -> (Model key url home Delay.empty, home |> url_encode url |> push_url False key)
     Just fragment ->
       let
         page = fragment_decode (update_search Not_Found) fragment
@@ -64,12 +71,6 @@ init _ url key =
               if should_query Nothing query then get_result query else Cmd.none
             _ -> Cmd.none
       in (Model key url page Delay.empty, search_cmd)
-    Nothing ->
-      let
-        search = Searcher.empty
-        page = Search (Searcher.init search) (Searcher.search_query search) Results.empty
-        url_cmd = page |> url_encode url |> push_url True key
-      in (Model key url page Delay.empty, url_cmd)
 
 
 {- url encoding/decoding -}
@@ -102,7 +103,7 @@ fragment_decode make_search1 fragment =
 url_decode: Url -> Page -> Page
 url_decode url page =
   case url.fragment of
-    Nothing -> Not_Found
+    Nothing -> home
     Just fragment -> fragment_decode (update_search page) fragment
 
 
