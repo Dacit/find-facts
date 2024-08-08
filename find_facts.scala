@@ -261,8 +261,9 @@ object Find_Facts {
     ): Blocks =
       db.execute_query(Fields.id, stored_fields, query, cursor, chunk_size,
         { results =>
+          val next_cursor = results.next_cursor
           val blocks = results.map(read_block).take(chunk_size).toList
-          Blocks(results.num_found, blocks, results.next_cursor)
+          Blocks(results.num_found, blocks, next_cursor)
         })
 
     def stream_blocks(
@@ -708,14 +709,12 @@ object Find_Facts {
   def find_facts(options: Options, port: Int, progress: Progress = new Progress): Unit = {
     val presentation_base = Url(options.string("isabelle_presentation_url"))
     val encode = new Encode(presentation_base)
+    val logo = Bytes.read(Path.explode("$FIND_FACTS_HOME/web/favicon.ico"))
     val project = Elm.Project("Find_Facts", Path.explode("$FIND_FACTS_HOME/web"), head = List(
       HTML.style("html,body {height: 100%}"),
       HTML.style_file("https://www.isa-afp.org/css/isabelle.css"),
-      HTML.style_file("https://fonts.googleapis.com/css?family=Roboto:300,400,500|Material+Icons"),
-      HTML.style_file(
-        "https://unpkg.com/material-components-web-elm@9.1.0/dist/material-components-web-elm.min.css"),
-      HTML.script_file(
-        "https://unpkg.com/material-components-web-elm@9.1.0/dist/material-components-web-elm.min.js")))
+      Web_App.More_HTML.icon("data:image/x-icon;base64," + logo.encode_base64.text),
+      HTML.style_file("https://hawkz.github.io/gdcss/gd.css")))
     val frontend = project.build_html(progress)
 
     using(Solr.open_database(Find_Facts.private_data)) { db =>
@@ -731,15 +730,17 @@ object Find_Facts {
           },
           new REST_Service(Path.explode("api/blocks"), progress) {
             def handle(body: JSON.T): Option[JSON.T] =
-              for (request <- Parse.query_blocks(body))
-              yield encode.blocks(query_blocks(db, request.query, Some(request.cursor)))
+              for (request <- Parse.query_blocks(body)) yield {
+                val blocks = query_blocks(db, request.query, Some(request.cursor))
+
+                encode.blocks(blocks)
+              }
           },
           new REST_Service(Path.explode("api/query"), progress) {
             def handle(body: JSON.T): Option[JSON.T] =
               for (query <- Parse.query(body)) yield {
                 val facet = query_facet(db, query)
                 val blocks = query_blocks(db, query)
-
                 encode.result(Result(blocks, facet))
               }
           }))
