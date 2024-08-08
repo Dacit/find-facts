@@ -2,7 +2,7 @@
 
 Basic library functions.
 -}
-module Library exposing (quote, try_unquote, perhaps_unquote, if_proper, get_msg)
+module Library exposing (quote, try_unquote, perhaps_unquote, list_if, if_proper, get_msg)
 
 
 import Http
@@ -18,8 +18,11 @@ try_unquote s =
 perhaps_unquote: String -> String
 perhaps_unquote s = try_unquote s |> Maybe.withDefault s
 
-if_proper: Bool -> a -> List a
-if_proper cond x = if cond then [x] else []
+list_if: Bool -> a -> List a
+list_if cond x = if cond then [x] else []
+
+if_proper: Bool -> String -> String
+if_proper cond s = if cond then s else ""
 
 get_msg: Http.Error -> String
 get_msg error =
