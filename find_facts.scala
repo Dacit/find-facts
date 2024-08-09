@@ -714,7 +714,12 @@ object Find_Facts {
       }
   }
 
-  def find_facts(options: Options, port: Int, progress: Progress = new Progress): Unit = {
+  def find_facts(
+    options: Options,
+    port: Int,
+    devel: Boolean = false,
+    progress: Progress = new Progress
+  ): Unit = {
     val presentation_base = Url(options.string("isabelle_presentation_url"))
     val encode = new Encode(presentation_base)
     val logo = Bytes.read(Path.explode("$FIND_FACTS_HOME/web/favicon.ico"))
@@ -734,7 +739,7 @@ object Find_Facts {
         HTTP.server(port, name = "", services = List(
           new HTTP.Service("app") {
             def apply(request: HTTP.Request): Option[HTTP.Response] =
-              Some(HTTP.Response.html(frontend))
+              Some(HTTP.Response.html(if (devel) project.build_html(progress) else frontend))
           },
           new REST_Service(Path.explode("api/block"), progress) {
             def handle(body: JSON.T): Option[JSON.T] =
@@ -775,6 +780,7 @@ object Find_Facts {
 
   val isabelle_tool1 = Isabelle_Tool("find_facts", "run find_facts server", Scala_Project.here,
   { args =>
+    var devel = false
     var options = Options.init()
     var port = 8080
     var verbose = false
@@ -783,12 +789,14 @@ object Find_Facts {
 Usage: isabelle find_facts [OPTIONS]
 
   Options are:
+    -d           devel mode
     -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
     -p PORT      explicit web server port
     -v           verbose server
 
   Run a find_facts query.
 """,
+        "d" -> (_ => devel = true),
         "o:" -> (arg => options = options + arg),
         "p:" -> (arg => port = Value.Int.parse(arg)),
         "v" -> (_ => verbose = true))
@@ -798,6 +806,6 @@ Usage: isabelle find_facts [OPTIONS]
 
     val progress = new Console_Progress(verbose = verbose)
 
-    find_facts(options, port, progress)
+    find_facts(options, port, devel = devel, progress = progress)
   })
 }
