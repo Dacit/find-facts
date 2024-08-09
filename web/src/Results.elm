@@ -1,20 +1,24 @@
 {- Author: Fabian Huch, TU München
 
-Search results. -}
-
+Find Facts results component.
+-}
 module Results exposing (Model, empty, Msg(..), set_loading, set_error, set_result, set_load_more,
   set_loaded, get_maybe_cursor, view)
 
 
 import Html exposing (..)
 import Html.Attributes exposing (style)
-import Html.Events exposing (onClick)
 import Html.Extra as Html
 import Html.Lazy as Lazy
 import Http
+import Material.Card as Card
+import Material.Elevation as Elevation
+import Material.LayoutGrid as LayoutGrid
+import Material.Typography as Typography
+import Material.LinearProgress as LinearProgress
 import Query exposing (Block)
 import Library exposing (..)
-import Utils exposing (view_html)
+import Utils
 
 
 {- model -}
@@ -65,22 +69,29 @@ get_maybe_cursor model =
 {- view -}
 
 view_block block =
-  span [] [p [] [text block.theory], pre [onClick (Selected block.id)] [view_html block.html]]
+  Card.card (Card.setAttributes [Elevation.z3, style "margin-bottom" "16px"] Card.config |> Card.setOnClick (Selected block.id))
+    {actions = Nothing,
+     blocks = (
+       Card.block
+         (LayoutGrid.layoutGrid [LayoutGrid.alignLeft, style "width" "100%"] [
+           div [Typography.caption, style "margin-bottom" "8px"] [text block.theory],
+           Utils.view_code block.html block.start_line]),
+       [])}
 
 view_results blocks loading =
   let
     num = List.length blocks.blocks
-    loaded_text = "Loaded " ++ (String.fromInt num) ++ "/" ++ (String.fromInt blocks.num_found) ++
-      if_proper (blocks.num_found > num) ". Scroll for more ..."
-  in div [style "height" "100%"] (
-    text ("Found " ++ String.fromInt blocks.num_found ++ " results") ::
-    (blocks.blocks |> List.map (Lazy.lazy view_block) |> List.intersperse (br [] [])) ++
-    [text (if loading then "Loading..." else loaded_text)])
+    loaded = span [Typography.subtitle1] [text ("Loaded " ++ (String.fromInt num) ++ "/" ++
+      (String.fromInt blocks.num_found) ++ if_proper (blocks.num_found > num) ". Scroll for more ...")]
+  in div [] (
+    h2 [Typography.headline4] [text ("Found " ++ String.fromInt blocks.num_found ++ " results")] ::
+    (blocks.blocks |> List.map (Lazy.lazy view_block)) ++
+    [if loading then LinearProgress.indeterminate LinearProgress.config else loaded])
 
 view: Model -> Html Msg
 view model =
   case model of
     Empty -> Html.nothing
-    Loading -> text "Loading..."
-    Error msg -> text msg
+    Loading -> LinearProgress.indeterminate LinearProgress.config
+    Error msg -> span [Typography.body1] [text msg]
     Results blocks loading -> Lazy.lazy2 view_results blocks loading

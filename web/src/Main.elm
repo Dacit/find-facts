@@ -1,15 +1,23 @@
+{- Author: Fabian Huch, TU München
+
+Find Facts application.
+-}
 module Main exposing (init, main, subscriptions, update, view)
 
 
 import Delay
 import Details
-import Html.Attributes exposing (style)
+import Html.Attributes exposing (href, style)
 import Html.Events as Events
+import Html.Lazy as Lazy
 import Http
 import Browser
 import Browser.Navigation as Navigation
 import Html exposing (..)
 import Json.Decode as Decode
+import Material.Theme as Theme
+import Material.TopAppBar as TopAppBar
+import Material.Typography as Typography
 import Query exposing (Query, Query_Blocks)
 import Results
 import Searcher
@@ -32,31 +40,31 @@ type Page = Not_Found | About | Detail Details.Model | Search Searcher.Model Que
 
 home: Page
 home =
-  let search = Searcher.empty
-  in Search (Searcher.init search) (Searcher.search_query search) Results.empty
+  let searcher = Searcher.empty
+  in Search searcher (Searcher.query searcher) Results.empty
 
 type alias Model = {nav_key: Navigation.Key, url: Url, page: Page, delay: Delay.Model}
 
 should_query : Maybe Query -> Query -> Bool
 should_query query query1 = query /= Just query1 && not (Query.empty_query query1)
 
-update_search: Page -> Searcher.Search -> Page
-update_search previous search =
-  case previous of
-    Search searcher query results ->
+populate: Page -> Searcher.Model -> Page
+populate page0 searcher =
+  case page0 of
+    Search searcher0 query0 results0 ->
       let
-        query1 = Searcher.search_query search
-        results1 =
-          if should_query (Just query) query1 then Results.set_loading
-          else if Query.empty_query query1 then Results.empty
-          else results
-      in Search {searcher | search = search} query1 results1
+        query = Searcher.query searcher
+        results =
+          if should_query (Just query0) query then Results.set_loading
+          else if Query.empty_query query then Results.empty
+          else results0
+      in Search (Searcher.populate searcher0 searcher) query results
     _ ->
      let
-       query = Searcher.search_query search
+       query = Searcher.query searcher
        results0 = Results.empty
        results = if should_query Nothing query then Results.set_loading else results0
-     in Search (Searcher.init search) query results
+     in Search searcher query results
 
 init: () -> Url -> Navigation.Key -> (Model, Cmd Msg)
 init _ url key =
@@ -64,47 +72,54 @@ init _ url key =
     Nothing -> (Model key url home Delay.empty, home |> url_encode url |> push_url False key)
     Just fragment ->
       let
-        page = fragment_decode (update_search Not_Found) fragment
-        search_cmd =
+        page = fragment_decode (populate Not_Found) fragment
+        cmd =
           case page of
             Search _ query _ ->
               if should_query Nothing query then get_result query else Cmd.none
+            Detail details -> get_block (Details.get_id details)
             _ -> Cmd.none
-      in (Model key url page Delay.empty, search_cmd)
+      in (Model key url page Delay.empty, cmd)
 
 
 {- url encoding/decoding -}
+
+aboutN = "about"
+detailsN = "details"
+searchN = "search"
 
 url_encode: Url -> Page -> Url
 url_encode url page =
   case page of
     Not_Found -> {url | fragment = Nothing}
-    About -> {url | fragment = Just "about"}
+    About -> {url | fragment = Just aboutN}
     Detail details ->
-      {url | fragment = Just ("details" ++ Url.Builder.toQuery (Details.params details))}
+      {url | fragment = Just (detailsN ++ Url.Builder.toQuery (Details.params details))}
     Search searcher _ _ ->
-      let params = Searcher.search_params searcher.search
-      in {url | fragment = Just ("search" ++ (Url.Builder.toQuery params))}
+      let params = Searcher.params searcher
+      in {url | fragment = Just (searchN ++ (Url.Builder.toQuery params))}
 
-fragment_decode : (Searcher.Search -> Page) -> String -> Page
-fragment_decode make_search1 fragment =
+fragment_decode : (Searcher.Model -> Page) -> String -> Page
+fragment_decode make_page fragment =
   case String.split "?" fragment of
-    ["about"] -> About
-    "details" :: qs ->
-      Utils.parse_query (String.join "?" qs) Details.parser
-      |> Maybe.map Detail
-      |> Maybe.withDefault Not_Found
-    "search" :: qs ->
-      Utils.parse_query (String.join "?" qs) Searcher.search_parser
-      |> Maybe.map make_search1
-      |> Maybe.withDefault Not_Found
-    _ -> Not_Found
+    [] -> Not_Found
+    page :: qs ->
+      let
+        parse parser f =
+          Utils.parse_query (String.join "?" qs) parser
+          |> Maybe.map f
+          |> Maybe.withDefault Not_Found
+      in
+        if page == aboutN && List.isEmpty qs then About
+        else if page == detailsN then parse Details.parser Detail
+        else if page == searchN then parse Searcher.parser make_page
+        else Not_Found
 
 url_decode: Url -> Page -> Page
-url_decode url page =
+url_decode url page0 =
   case url.fragment of
     Nothing -> home
-    Just fragment -> fragment_decode (update_search page) fragment
+    Just fragment -> fragment_decode (populate page0) fragment
 
 
 {- commands -}
@@ -135,9 +150,9 @@ type alias Scroll_Info = {pos: Float, top: Float, height: Float}
 type Msg =
   Link_Clicked Browser.UrlRequest |
   Url_Changed Url |
-  Searcher Searcher.Msg |
-  Delay (Delay.Msg Msg) |
-  Results (Results.Msg) |
+  Searcher_Msg Searcher.Msg |
+  Delay_Msg (Delay.Msg Msg) |
+  Results_Msg (Results.Msg) |
   Query_Result Query (Result Http.Error Query.Result) |
   Query_Blocks Query (Result Http.Error Query.Blocks) |
   Query_Block String (Result Http.Error Query.Block) |
@@ -158,57 +173,62 @@ update msg model =
       let
         query0 =
           case model.page of
-            Search _ query1 _ -> Just query1
+            Search _ query _ -> Just query
             _ -> Nothing
         page = url_decode url model.page
-        (delay, cmd) =
+        cmd =
           case page of
-            Search _ query _ ->
-              if should_query query0 query
-                then Delay.invoke model.delay (query_delay query) |> Tuple.mapSecond (Cmd.map Delay)
-                else (model.delay, Cmd.none)
-            Detail details -> (model.delay, get_block (Details.get_id details))
-            _ -> (model.delay, Cmd.none)
-      in ({model | url = url, page = page, delay = delay}, cmd)
+            Search _ query _ -> if should_query query0 query then get_result query else Cmd.none
+            Detail details -> get_block (Details.get_id details)
+            _ -> Cmd.none
+      in ({model | url = url, page = page}, cmd)
 
-    Delay msg1 ->
+    Delay_Msg msg1 ->
       let (delay, cmd) = Delay.update model.delay msg1
       in ({model | delay = delay}, cmd)
 
-    Searcher msg1 ->
+    Searcher_Msg msg1 ->
       case model.page of
-        Search search _ results ->
+        Search searcher _ results ->
           let
-            model1 = Searcher.update msg1 search
-            query1 = Searcher.search_query model1.search
-            page = Search model1 query1 results
-            cmd = url_encode model.url page |> push_url False model.nav_key
-          in (model, cmd)
+            query0 =
+              case model.page of
+                Search _ query _ -> Just query
+                _ -> Nothing
+            searcher1 = Searcher.update msg1 searcher
+            query1 = Searcher.query searcher1
+            page = Search searcher1 query1 results
+            nav_cmd = url_encode model.url page |> push_url False model.nav_key
+            (delay, delay_cmd) =
+              if should_query query0 query1 then Delay.invoke model.delay (query_delay query1)
+              else (model.delay, Cmd.none)
+          in
+            ({model | page = page, delay = delay}, Cmd.batch [nav_cmd, Cmd.map Delay_Msg delay_cmd])
         _ -> (model, Cmd.none)
 
-    Results (Results.Selected id) ->
+    Results_Msg (Results.Selected id) ->
       (model, url_encode model.url (id |> Details.init |> Detail) |> push_url True model.nav_key)
 
     Query_Result query res ->
       case model.page of
-        Search search query1 _ ->
+        Search searcher query1 _ ->
           case res of
             Result.Ok result ->
               if query /= query1 then (model, Cmd.none)
               else
                 let
-                  search1 = Searcher.set_result result search
+                  searcher1 = Searcher.set_result result searcher
                   results = Results.set_result result
-                in ({model | page = Search search1 query1 results}, Cmd.none)
+                in ({model | page = Search searcher1 query1 results}, Cmd.none)
             Result.Err err ->
-              ({model | page = Search search query (Results.set_error err)}, Cmd.none)
+              ({model | page = Search searcher query (Results.set_error err)}, Cmd.none)
         _ -> (model, Cmd.none)
 
     Query_Blocks query res ->
       case model.page of
-        Search search query1 results ->
+        Search searcher query1 results ->
           if query /= query1 then (model, Cmd.none)
-          else ({model | page = Search search query (Results.set_loaded res results)}, Cmd.none)
+          else ({model | page = Search searcher query (Results.set_loaded res results)}, Cmd.none)
         _ -> (model, Cmd.none)
 
     Query_Block id res ->
@@ -222,12 +242,12 @@ update msg model =
       if (scroll.pos - scroll.top) > scroll.height then (model, Cmd.none)
       else
         case model.page of
-          Search search query results ->
+          Search searcher query results ->
             case Results.get_maybe_cursor results of
               Nothing -> (model, Cmd.none)
               Just cursor ->
                 let results1 = Results.set_load_more results
-                in ({model | page = Search search query results1}, get_blocks query cursor)
+                in ({model | page = Search searcher query results1}, get_blocks query cursor)
           _ -> (model, Cmd.none)
 
 
@@ -250,13 +270,32 @@ decode_scroll =
 
 view: Model -> Browser.Document Msg
 view model =
-  case model.page of
-    Not_Found -> {title = "404 Not Found", body = [text "404 Not Found"]}
-    About -> {title = "Find Facts | About", body = [text ""]}
-    Detail details ->
-      {title = "Find Facts | Details", body = [Details.view details |> Html.map never]}
-    Search search _ results -> {
-      title = "Find Facts | Search",
-      body = [
-        div [Events.on "scroll" decode_scroll, style "height" "100%", style "overflow" "scroll"]
-          [Searcher.view search |> Html.map Searcher, Results.view results |> Html.map Results]]}
+  let
+    view_navlink attrs page name =
+      a (attrs ++ [href ("#" ++ page), style "margin" "0 16px", Theme.onPrimary])
+        [text name]
+    (title, content) = case model.page of
+      Not_Found -> ("404 Not Found", [text "404 Not Found"])
+      About -> ("Find Facts | About", [text "Search engine for Isabelle"])
+      Detail details -> ("Find Facts | Details", [Details.view details |> Html.map never])
+      Search searcher _ results -> ("Find Facts | Search", [
+        searcher |> Lazy.lazy Searcher.view |> Html.map Searcher_Msg,
+        results |> Lazy.lazy Results.view |> Html.map Results_Msg])
+  in {
+    title = title,
+    body = [
+      div [style "height" "100vh", Events.on "scroll" decode_scroll, style "overflow" "scroll"] [
+        TopAppBar.regular
+          (TopAppBar.config
+           |> TopAppBar.setDense True
+           |> TopAppBar.setAttributes [style "position" "relative"])
+          [TopAppBar.row [style "max-width" "1200px", style "margin" "0 auto"]
+            [TopAppBar.section [TopAppBar.alignStart]
+              [view_navlink [TopAppBar.title] searchN "Find Facts"],
+              TopAppBar.section [TopAppBar.alignEnd]
+                [view_navlink [Typography.button] searchN "Search",
+                 view_navlink [Typography.button] aboutN "About"]]],
+        div
+          [style "padding-left" "16px", style "padding-right" "16px", style "max-width" "1200px",
+           style "margin" "0 auto"]
+          content]]}

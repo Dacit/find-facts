@@ -2,12 +2,14 @@
 
 Basic library functions.
 -}
-module Library exposing (quote, try_unquote, perhaps_unquote, list_if, if_proper, maybe_proper,
-  get_msg)
+module Library exposing (quote, try_unquote, perhaps_unquote, if_proper, maybe_proper, split_lines,
+  count_lines, list_if, get_msg)
 
 
 import Http
 
+
+{- strings -}
 
 quote: String -> String
 quote s = "\"" ++ s ++ "\""
@@ -19,14 +21,26 @@ try_unquote s =
 perhaps_unquote: String -> String
 perhaps_unquote s = try_unquote s |> Maybe.withDefault s
 
-list_if: Bool -> a -> List a
-list_if cond x = if cond then [x] else []
-
 if_proper: Bool -> String -> String
 if_proper cond s = if cond then s else ""
 
 maybe_proper: Maybe a -> (a -> String) -> String
 maybe_proper a f = a |> Maybe.map f |> Maybe.withDefault ""
+
+split_lines: String -> List String
+split_lines s = s |> String.replace "\r" "" |> String.split "\n"
+
+count_lines: String -> Int
+count_lines s = s |> split_lines |> List.length
+
+
+{- lists -}
+
+list_if: Bool -> a -> List a
+list_if cond x = if cond then [x] else []
+
+
+{- errors -}
 
 get_msg: Http.Error -> String
 get_msg error =

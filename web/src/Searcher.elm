@@ -1,21 +1,32 @@
 {- Author: Fabian Huch, TU München
 
-Searcher component: Url-encoded 'dry' query state enriched by facet information from query.
+Find Facts searcher component: Url-encoded 'dry' query state enriched by facet information from query.
 -}
-module Searcher exposing (Search, Model, empty, init, search_params, search_parser, Msg, update,
- set_result, view, search_query)
+module Searcher exposing (Model, empty, params, parser, Msg, update,
+ populate, set_result, view, query)
 
 
 import Array exposing (Array)
 import Array.Extra as Array
 import Dict exposing (Dict)
 import Html exposing (..)
-import Html.Attributes exposing (placeholder, selected, value)
-import Html.Events exposing (onClick, onInput)
+import Html.Attributes exposing (style)
+import Html.Extra as Html
 import Library exposing (..)
+import Material.Chip.Filter as FilterChip
+import Material.ChipSet.Filter as FilterChipSet
+import Material.Elevation as Elevation
+import Material.IconButton as IconButton
+import Material.LayoutGrid as LayoutGrid
+import Material.Select as Select
+import Material.Select.Item as SelectItem
+import Material.TextField as TextField
+import Material.TextField.Icon as TextFieldIcon
+import Material.Typography as Typography
 import Parser exposing (Parser)
 import Query
 import Set exposing (Set)
+import Html.Lazy as Lazy
 import Url.Builder exposing (QueryParameter)
 import Maybe exposing (Maybe)
 import Maybe.Extra as Maybe
@@ -25,7 +36,6 @@ import Utils exposing (Query_Param, parse_key)
 {- config -}
 
 max_facet_terms = 5
-max_search_facet_terms = 20
 
 
 {- fields -}
@@ -35,14 +45,13 @@ theoryN = "theory"
 commandN = "command"
 sourceN = "source"
 nameN = "name"
-constantN = "consts"
-typeN = "typs"
-theoremN = "thms"
-kindN = "kinds"
+constsN = "consts"
+typsN = "typs"
+thmsN = "thms"
+kindsN = "kinds"
 
-search_fields = [sessionN, theoryN, commandN, sourceN, nameN, constantN, typeN, theoremN]
-search_facet_fields = [sessionN, theoryN, commandN, constantN, typeN, theoremN]
-facet_fields = [sessionN, theoryN, commandN, constantN, typeN, theoremN, kindN]
+search_fields = [sessionN, theoryN, commandN, sourceN, nameN, constsN, typsN, thmsN]
+facet_fields = [sessionN, theoryN, commandN, constsN, typsN, thmsN, kindsN]
 
 
 {- search components -}
@@ -50,13 +59,12 @@ facet_fields = [sessionN, theoryN, commandN, constantN, typeN, theoremN, kindN]
 type alias Facet = {field: String, terms: Set String}
 type alias Filter = {field: String, value: String, exclude: Bool}
 type alias Search = {any_filter: String, filters: Array Filter, facets: Dict String Facet}
-type alias Model = {search: Search, add_filter: Bool, facets: Maybe Query.Facets}
+type Model = Model {search: Search, facets: Maybe Query.Facets}
 
-empty: Search
-empty = Search "" Array.empty Dict.empty
+init search = Model {search = search, facets = Nothing}
 
-init: Search -> Model
-init search = Model search False Nothing
+empty: Model
+empty = init (Search "" Array.empty Dict.empty)
 
 
 {- URL encoding -}
@@ -75,6 +83,8 @@ search_params search =
     (search.filters |> Array.toList |> List.concatMap filter_params) ++
     (search.facets |> Dict.values |> List.sortBy .field |> List.concatMap facet_params)
 
+params: Model -> List QueryParameter
+params (Model model) = search_params model.search
 
 {- Url parsing -}
 
@@ -102,112 +112,144 @@ search_parser =
     (Parser.rep facet_parser |> Parser.map
       (List.map (\facet -> (facet.field, facet)) >> Dict.fromList))
 
+parser: Parser Query_Param Model
+parser = Parser.map init search_parser
+
 
 {- update -}
 
 type Msg =
   Any_Input String |
-  Open_Add_Filter |
   Add_Filter String |
   Filter_Input Int String |
   Change_Filter Int |
   Remove_Filter Int |
-  Select_Facet String String Bool
+  Change_Facet String String
 
 empty_filter field = Filter field "" False
 update_filter value filter = {filter | value = value}
 change_filter filter = {filter | exclude = (not filter.exclude)}
+change_terms value terms = (if Set.member value terms then Set.remove else Set.insert) value terms
 
-update_facet : String -> String -> Bool -> Maybe Facet -> Maybe Facet
-update_facet field value selected facet0 =
+change_facet : String -> String -> Maybe Facet -> Maybe Facet
+change_facet field value facet0 =
   let
     facet1 = Maybe.withDefault (Facet field Set.empty) facet0
-    facet2 = {facet1 | terms = facet1.terms |> (if selected then Set.insert else Set.remove) value}
+    facet2 = {facet1 | terms = facet1.terms |> change_terms value}
   in if Set.isEmpty facet2.terms then Nothing else Just facet2
 
 update: Msg -> Model -> Model
-update msg model =
+update msg (Model model) =
   let
     search = model.search
-    search1 =
-      case msg of
-        Any_Input value -> {search | any_filter = value}
-        Add_Filter field ->
-         {search | filters = search.filters |> Array.push (empty_filter field)}
-        Filter_Input i value ->
-          {search | filters = search.filters |> Array.update i (update_filter value)}
-        Change_Filter i -> {search | filters = search.filters |> Array.update i change_filter}
-        Remove_Filter i -> {search | filters = search.filters |> Array.removeAt i}
-        Select_Facet field value selected ->
-          {search | facets = search.facets |> Dict.update field (update_facet field value selected)}
-        _ -> search
+    update_search search1 = Model {model | search = search1}
   in case msg of
-    Open_Add_Filter -> {model | search = search1, add_filter = True}
-    _ -> {model | search = search1}
+    Any_Input value -> update_search {search | any_filter = value}
+    Add_Filter field ->
+     update_search {search | filters = search.filters |> Array.push (empty_filter field)}
+    Filter_Input i value ->
+      update_search {search | filters = search.filters |> Array.update i (update_filter value)}
+    Change_Filter i ->
+     update_search {search | filters = search.filters |> Array.update i change_filter}
+    Remove_Filter i -> update_search {search | filters = search.filters |> Array.removeAt i}
+    Change_Facet field value ->
+      update_search
+        {search | facets = search.facets |> Dict.update field (change_facet field value)}
+
+populate: Model -> Model -> Model
+populate (Model model0) (Model model) = Model {model0 | search = model.search}
 
 set_result: Query.Result -> Model -> Model
-set_result res model = {model | facets = Just res.facets}
+set_result res (Model model) = Model {model | facets = Just res.facets}
 
 
 {- view -}
 
-view_filter_select i counts =
+view_field: String -> String
+view_field field =
+  Dict.fromList [(sessionN, "Session"), (theoryN, "Theory"), (commandN, "Command"),
+    (sourceN, "Source"), (nameN, "Name"), (constsN, "Constant"), (typsN, "Type"),
+    (thmsN, "Theorem"), (kindsN, "Kind")]
+  |> Dict.get field
+  |> Maybe.withDefault field
+
+view_filter: (Int, Filter) -> Html Msg
+view_filter (i, filter) =
+  LayoutGrid.inner [Typography.body1, style "margin" "16px 0"] [
+    LayoutGrid.cell
+      [LayoutGrid.span3Phone, LayoutGrid.span7Tablet, LayoutGrid.span11Desktop,
+        LayoutGrid.alignMiddle]
+      [TextField.outlined
+        (TextField.config
+         |> TextField.setLeadingIcon (Just (
+           TextFieldIcon.icon (if filter.exclude then "block" else "done")
+           |> TextFieldIcon.setOnInteraction (Change_Filter i)))
+         |> TextField.setValue (Just filter.value)
+         |> TextField.setOnInput (Filter_Input i)
+         |> TextField.setAttributes [style "width" "100%"]
+         |> TextField.setLabel (Just filter.field))],
+    LayoutGrid.cell [LayoutGrid.span1, LayoutGrid.alignLeft] [
+      IconButton.iconButton
+        (IconButton.config |> IconButton.setOnClick (Remove_Filter i))
+        (IconButton.icon "close")]]
+
+view_facet: String -> String -> List String -> Dict String Int -> Set String -> Html Msg
+view_facet field t ts counts selected =
   let
-    view_option (name, count) =
-      option [value name] [text (name ++ " (" ++ String.fromInt count ++ ")")]
-  in select [onInput (Filter_Input i)] (option [selected True] [text "Select"] ::
-    (counts |> Dict.toList |> List.sortBy Tuple.first |> List.map view_option))
+    chip term =
+      FilterChip.chip
+        (FilterChip.config
+         |> FilterChip.setSelected (Set.member term selected)
+         |> FilterChip.setOnChange (Change_Facet field term))
+        (term ++ maybe_proper (Dict.get term counts) (\i -> " (" ++ String.fromInt i ++ ")"))
+  in LayoutGrid.inner [Typography.body1] [
+       LayoutGrid.cell [LayoutGrid.span2, LayoutGrid.alignMiddle] [text (view_field field)],
+       LayoutGrid.cell [LayoutGrid.span10]
+         [FilterChipSet.chipSet [] (chip t) (ts |> List.map chip)]]
 
-view_filter counts (i, filter) =
-  let
-    counts1 = if Dict.size counts > max_search_facet_terms then Dict.empty else counts
-    select = List.member filter.field search_facet_fields && not (Dict.isEmpty counts1)
-  in fieldset [] ([
-    legend [] [text <| filter.field],
-    button [onClick (Change_Filter i) ] [text (if filter.exclude then "not" else "in")]] ++
-    list_if select (view_filter_select i counts1) ++ [
-    input [placeholder "search ...", value filter.value, onInput (Filter_Input i)] [],
-    button [onClick (Remove_Filter i)] [text "x"]])
-
-view_term field count enabled term =
-  let term_string = term ++ maybe_proper count (\i -> " (" ++ String.fromInt i ++ ")")
-  in button [onClick (Select_Facet field term (not enabled))] [text term_string]
-
-view_facet field counts selected =
-  let
-    counts1 = if (Dict.size counts > max_facet_terms) then Dict.empty else counts
-    terms = Dict.keys counts1 |> Set.fromList |> Set.union selected |> Set.toList |> List.sort
-    view_term1 term = view_term field (Dict.get term counts1) (Set.member term selected) term
-  in
-    if List.isEmpty terms then Nothing
-    else Just (div [] (text field :: (terms |> List.map view_term1)))
-
+view_add_filter : Html Msg
 view_add_filter =
-  select [onInput Add_Filter] (
-    option [selected True] [text "Add filter"] ::
-    (search_fields |> List.map (\field -> option [value field] [text field])))
+  let option field = SelectItem.selectItem (SelectItem.config {value=field}) field
+  in case search_fields of
+    [] -> Html.nothing
+    x :: xs ->
+      Select.outlined
+        (Select.config
+         |> Select.setLabel (Just "Add Filter")
+         |> Select.setAttributes [style "margin" "16px 0"]
+         |> Select.setOnChange Add_Filter)
+        (option x)
+        (xs |> List.map option)
 
 view: Model -> Html Msg
-view model =
+view (Model model) =
   let
-    get_counts field =
-      model.facets |> Maybe.map (Dict.get field) |> Maybe.join |> Maybe.withDefault Dict.empty
-    get_selected field =
-      model.search.facets |> Dict.get field |> Maybe.map .terms |> Maybe.withDefault Set.empty
-    view_facet1 field = view_facet field (get_counts field) (get_selected field)
-  in form [] [
-    p [] [
-      input [placeholder "search anywhere ...", value model.search.any_filter, onInput Any_Input]
-        [],
-      p [] (
-        text "Filters" :: (
-        model.search.filters
-        |> Array.toIndexedList
-        |> List.map (\(i, filter) -> view_filter (get_counts filter.field) (i, filter))
-        |> List.intersperse (hr [] [])) ++
-        [view_add_filter]),
-      p [] (text "Drill-down" ::
-        (facet_fields |> List.filterMap view_facet1 |> List.intersperse (hr [] [])))]]
+    maybe_view_facet field =
+      let
+        counts =
+          model.facets |> Maybe.map (Dict.get field) |> Maybe.join |> Maybe.withDefault Dict.empty
+        selected =
+          model.search.facets |> Dict.get field |> Maybe.map .terms |> Maybe.withDefault Set.empty
+        counts1 = if Dict.size counts > max_facet_terms then Dict.empty else counts
+        terms = Dict.keys counts1 |> Set.fromList |> Set.union selected |> Set.toList |> List.sort
+      in case terms of
+        [] -> Nothing
+        t::ts -> Just (Lazy.lazy5 view_facet field t ts counts1 selected)
+    facets = facet_fields |> List.filterMap maybe_view_facet
+  in
+    LayoutGrid.layoutGrid [Elevation.z2, style "margin" "16px 0"] ([
+      TextField.outlined (TextField.config
+      |> TextField.setPlaceholder (Just "Enter search terms...")
+      |> TextField.setAttributes
+        [style "width" "100%", style "background-color" "white", style "margin-bottom" "16px"]
+      |> TextField.setValue (Just model.search.any_filter)
+      |> TextField.setOnInput Any_Input),
+      h3 [Typography.headline6] [text "Filters"]] ++ (
+      Array.toIndexedList model.search.filters
+      |> List.map (Lazy.lazy view_filter)) ++
+    [view_add_filter] ++ (
+    list_if (not (List.isEmpty facets)) (h3 [Typography.headline6] [text "Drill-down"])) ++
+    facets)
 
 
 {- queries -}
@@ -237,3 +279,6 @@ search_query search =
     (list_if (search.any_filter /= "") (search.any_filter |> term_query |> Query.Any_Filter)) ++
     (Array.toList search.filters |> List.map filter_query) ++
     (Dict.toList search.facets |> List.map Tuple.second |> List.map facet_query))
+
+query: Model -> Query.Query
+query (Model model) = search_query model.search

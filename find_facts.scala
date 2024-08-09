@@ -723,11 +723,19 @@ object Find_Facts {
     val presentation_base = Url(options.string("isabelle_presentation_url"))
     val encode = new Encode(presentation_base)
     val logo = Bytes.read(Path.explode("$FIND_FACTS_HOME/web/favicon.ico"))
+
+    val isabelle_style = HTML.fonts_css("/fonts/" + _) + "\n\n" + File.read(HTML.isabelle_css)
+
     val project = Elm.Project("Find_Facts", Path.explode("$FIND_FACTS_HOME/web"), head = List(
-      HTML.style("html,body {height: 100%}"),
-      HTML.style_file("https://www.isa-afp.org/css/isabelle.css"),
+      HTML.style("html,body {width: 100%, height: 100%}"),
       Web_App.More_HTML.icon("data:image/x-icon;base64," + logo.encode_base64.text),
-      HTML.style_file("https://hawkz.github.io/gdcss/gd.css")))
+      HTML.style_file("isabelle.css"),
+      HTML.style_file("https://fonts.googleapis.com/css?family=Roboto:300,400,500|Material+Icons"),
+      HTML.style_file(
+        "https://unpkg.com/material-components-web-elm@9.1.0/dist/material-components-web-elm.min.css"),
+      HTML.script_file(
+        "https://unpkg.com/material-components-web-elm@9.1.0/dist/material-components-web-elm.min.js")))
+
     val frontend = project.build_html(progress)
 
     using(Solr.open_database(Find_Facts.private_data)) { db =>
@@ -737,6 +745,11 @@ object Find_Facts {
 
       val server =
         HTTP.server(port, name = "", services = List(
+          HTTP.Fonts_Service,
+          new HTTP.Service("isabelle.css") {
+            def apply(request: HTTP.Request): Option[HTTP.Response] =
+              Some(HTTP.Response(Bytes(isabelle_style), "text/css"))
+          },
           new HTTP.Service("app") {
             def apply(request: HTTP.Request): Option[HTTP.Response] =
               Some(HTTP.Response.html(if (devel) project.build_html(progress) else frontend))
