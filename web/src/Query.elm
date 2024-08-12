@@ -19,6 +19,9 @@ type Filter = Any_Filter Term | Field_Filter String Term
 type alias Query = {filters: List Filter}
 type alias Query_Blocks = {query: Query, cursor: String}
 
+empty: Query
+empty = Query []
+
 empty_atom: Atom -> Bool
 empty_atom atom =
   case atom of

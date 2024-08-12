@@ -1,9 +1,10 @@
 {- Author: Fabian Huch, TU München
 
-Find Facts searcher component: Url-encoded 'dry' query state enriched by facet information from query.
+Find Facts searcher component: Url-encoded 'dry' query state,
+enriched by facet information from query.
 -}
-module Searcher exposing (Model, empty, params, parser, Msg, update,
- populate, set_result, view, query)
+module Searcher exposing (Model, empty, params, parser, Msg, Update(..), update, populate,
+  set_result, view, get_query)
 
 
 import Array exposing (Array)
@@ -24,7 +25,7 @@ import Material.TextField as TextField
 import Material.TextField.Icon as TextFieldIcon
 import Material.Typography as Typography
 import Parser exposing (Parser)
-import Query
+import Query exposing (Query)
 import Set exposing (Set)
 import Html.Lazy as Lazy
 import Url.Builder exposing (QueryParameter)
@@ -126,6 +127,8 @@ type Msg =
   Remove_Filter Int |
   Change_Facet String String
 
+type Update = Empty Query | None Query | Later Query | Now Query
+
 empty_filter field = Filter field "" False
 update_filter value filter = {filter | value = value}
 change_filter filter = {filter | exclude = (not filter.exclude)}
@@ -138,23 +141,34 @@ change_facet field value facet0 =
     facet2 = {facet1 | terms = facet1.terms |> change_terms value}
   in if Set.isEmpty facet2.terms then Nothing else Just facet2
 
-update: Msg -> Model -> Model
+update: Msg -> Model -> (Model, Update)
 update msg (Model model) =
   let
     search = model.search
-    update_search search1 = Model {model | search = search1}
+    maybe_same h m = if Maybe.withDefault True m then None else h
+    update_search search1 upd =
+      let query1 = search_query search1
+      in if Query.empty_query query1
+        then (Model {model | search = search1, facets = Nothing}, Empty query1)
+        else (Model {model | search = search1}, upd query1)
   in case msg of
-    Any_Input value -> update_search {search | any_filter = value}
+    Any_Input value ->
+      update_search {search | any_filter = value}
+        (if value == search.any_filter then None else Later)
     Add_Filter field ->
-     update_search {search | filters = search.filters |> Array.push (empty_filter field)}
+     update_search {search | filters = search.filters |> Array.push (empty_filter field)} None
     Filter_Input i value ->
       update_search {search | filters = search.filters |> Array.update i (update_filter value)}
+        (maybe_same Later (Array.get i search.filters |> Maybe.map (.value >> (==) value)))
     Change_Filter i ->
-     update_search {search | filters = search.filters |> Array.update i change_filter}
-    Remove_Filter i -> update_search {search | filters = search.filters |> Array.removeAt i}
+      update_search {search | filters = search.filters |> Array.update i change_filter}
+        (maybe_same Now (Array.get i search.filters |> Maybe.map (.value >> String.isEmpty)))
+    Remove_Filter i ->
+      update_search {search | filters = search.filters |> Array.removeAt i}
+        (maybe_same Now (Array.get i search.filters |> Maybe.map (.value >> String.isEmpty)))
     Change_Facet field value ->
       update_search
-        {search | facets = search.facets |> Dict.update field (change_facet field value)}
+        {search | facets = search.facets |> Dict.update field (change_facet field value)} Now
 
 populate: Model -> Model -> Model
 populate (Model model0) (Model model) = Model {model0 | search = model.search}
@@ -280,5 +294,5 @@ search_query search =
     (Array.toList search.filters |> List.map filter_query) ++
     (Dict.toList search.facets |> List.map Tuple.second |> List.map facet_query))
 
-query: Model -> Query.Query
-query (Model model) = search_query model.search
+get_query: Model -> Query.Query
+get_query (Model model) = search_query model.search

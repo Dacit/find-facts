@@ -5,7 +5,7 @@ Find Facts application.
 module Main exposing (init, main, subscriptions, update, view)
 
 
-import Delay
+import Delay exposing (Delay)
 import Details
 import Html.Attributes exposing (href, style)
 import Html.Events as Events
@@ -39,9 +39,7 @@ main =
 type Page = Not_Found | About | Detail Details.Model | Search Searcher.Model Query Results.Model
 
 home: Page
-home =
-  let searcher = Searcher.empty
-  in Search searcher (Searcher.query searcher) Results.empty
+home = Search Searcher.empty Query.empty Results.empty
 
 type alias Model = {nav_key: Navigation.Key, url: Url, page: Page, delay: Delay.Model}
 
@@ -53,17 +51,17 @@ populate page0 searcher =
   case page0 of
     Search searcher0 query0 results0 ->
       let
-        query = Searcher.query searcher
+        query = Searcher.get_query searcher
         results =
-          if should_query (Just query0) query then Results.set_loading
+          if should_query (Just query0) query then Results.loading
           else if Query.empty_query query then Results.empty
           else results0
       in Search (Searcher.populate searcher0 searcher) query results
     _ ->
      let
-       query = Searcher.query searcher
+       query = Searcher.get_query searcher
        results0 = Results.empty
-       results = if should_query Nothing query then Results.set_loading else results0
+       results = if should_query Nothing query then Results.loading else results0
      in Search searcher query results
 
 init: () -> Url -> Navigation.Key -> (Model, Cmd Msg)
@@ -133,6 +131,9 @@ get_result query =
   Http.post {url="/api/query", expect = Http.expectJson (Query_Result query) Query.decode_result,
     body = query |> Query.encode_query |> Http.jsonBody}
 
+query_delay: Query -> Delay Msg
+query_delay query = {name = "query", delay = 500, event = get_result query}
+
 get_blocks: Query -> String -> Cmd Msg
 get_blocks query cursor =
   Http.post {url = "/api/blocks", expect = Http.expectJson (Query_Blocks query) Query.decode_blocks,
@@ -151,15 +152,12 @@ type Msg =
   Link_Clicked Browser.UrlRequest |
   Url_Changed Url |
   Searcher_Msg Searcher.Msg |
-  Delay_Msg (Delay.Msg Msg) |
+  Delay_Msg (Delay Msg) |
   Results_Msg (Results.Msg) |
   Query_Result Query (Result Http.Error Query.Result) |
   Query_Blocks Query (Result Http.Error Query.Blocks) |
   Query_Block String (Result Http.Error Query.Block) |
   Scroll_Event Scroll_Info
-
-query_delay: Query -> Delay.Delay Msg
-query_delay query = {name = "query", delay = 500, event = get_result query}
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -176,12 +174,14 @@ update msg model =
             Search _ query _ -> Just query
             _ -> Nothing
         page = url_decode url model.page
-        cmd =
+        (delay, cmd) =
           case page of
-            Search _ query _ -> if should_query query0 query then get_result query else Cmd.none
-            Detail details -> get_block (Details.get_id details)
-            _ -> Cmd.none
-      in ({model | url = url, page = page}, cmd)
+            Search _ query _ ->
+              if should_query query0 query then Delay.now model.delay (query_delay query)
+              else (model.delay, Cmd.none)
+            Detail details -> (model.delay, get_block (Details.get_id details))
+            _ -> (model.delay, Cmd.none)
+      in ({model | url = url, delay = delay, page = page}, cmd)
 
     Delay_Msg msg1 ->
       let (delay, cmd) = Delay.update model.delay msg1
@@ -191,19 +191,20 @@ update msg model =
       case model.page of
         Search searcher _ results ->
           let
-            query0 =
-              case model.page of
-                Search _ query _ -> Just query
-                _ -> Nothing
-            searcher1 = Searcher.update msg1 searcher
-            query1 = Searcher.query searcher1
-            page = Search searcher1 query1 results
+            (searcher1, update_search) = Searcher.update msg1 searcher
+            ((delay, search_cmd), query1, results1) =
+              case update_search of
+                Searcher.None query -> ((model.delay, Cmd.none), query, results)
+                Searcher.Empty query ->
+                  ((Delay.cancel model.delay (query_delay query), Cmd.none), query, Results.empty)
+                Searcher.Later query ->
+                  (Delay.later Delay_Msg model.delay (query_delay query), query, Results.loading)
+                Searcher.Now query ->
+                  (Delay.now model.delay (query_delay query), query, Results.loading)
+            page = Search searcher1 query1 results1
             nav_cmd = url_encode model.url page |> push_url False model.nav_key
-            (delay, delay_cmd) =
-              if should_query query0 query1 then Delay.invoke model.delay (query_delay query1)
-              else (model.delay, Cmd.none)
           in
-            ({model | page = page, delay = delay}, Cmd.batch [nav_cmd, Cmd.map Delay_Msg delay_cmd])
+            ({model | page = page, delay = delay}, Cmd.batch [nav_cmd, search_cmd])
         _ -> (model, Cmd.none)
 
     Results_Msg (Results.Selected id) ->
@@ -218,10 +219,10 @@ update msg model =
               else
                 let
                   searcher1 = Searcher.set_result result searcher
-                  results = Results.set_result result
+                  results = Results.result result
                 in ({model | page = Search searcher1 query1 results}, Cmd.none)
             Result.Err err ->
-              ({model | page = Search searcher query (Results.set_error err)}, Cmd.none)
+              ({model | page = Search searcher query (Results.error err)}, Cmd.none)
         _ -> (model, Cmd.none)
 
     Query_Blocks query res ->
