@@ -37,7 +37,6 @@ object Find_Facts {
     typs: List[String],
     thms: List[String]
   ) {
-    def theory_base: String = Long_Name.base_name(theory)
     def kinds: List[String] =
       (if (typs.nonEmpty) List(Kind.TYPE) else Nil) :::
       (if (consts.nonEmpty) List(Kind.CONST) else Nil) :::
@@ -187,7 +186,6 @@ object Find_Facts {
       val session = Solr.Field("session", Types.name)
       val session_facet = Solr.Field("session_facet", Solr.Type.string, Solr.Stored(false))
       val theory = Solr.Field("theory", Types.name)
-      val theory_base = Solr.Field("theory_base", Solr.Type.string)
       val theory_facet = Solr.Field("theory_facet", Solr.Type.string, Solr.Stored(false))
       val file = Solr.Field("file", Solr.Type.string, Solr.Indexed(false))
       val url_path = Solr.Field("url_path", Solr.Type.string, Solr.Indexed(false))
@@ -214,11 +212,11 @@ object Find_Facts {
     }
 
     lazy val fields: Solr.Fields = Solr.Fields(
-      Fields.id, Fields.version, Fields.session, Fields.session_facet, Fields.theory,
-      Fields.theory_base, Fields.theory_facet, Fields.file, Fields.url_path, Fields.command,
-      Fields.start_line, Fields.src_before, Fields.src_after, Fields.src, Fields.markup,
-      Fields.html, Fields.consts, Fields.consts_facet, Fields.typs, Fields.typs_facet, Fields.thms,
-      Fields.thms_facet, Fields.names, Fields.kinds)
+      Fields.id, Fields.version, Fields.session, Fields.session_facet, Fields.theory, 
+      Fields.theory_facet, Fields.file, Fields.url_path, Fields.command, Fields.start_line,
+      Fields.src_before, Fields.src_after, Fields.src, Fields.markup, Fields.html, Fields.consts,
+      Fields.consts_facet, Fields.typs, Fields.typs_facet, Fields.thms, Fields.thms_facet,
+      Fields.names, Fields.kinds)
 
 
     /* operations */
@@ -293,7 +291,6 @@ object Find_Facts {
             doc.string(Fields.session_facet) = block.session
             doc.string(Fields.theory) = block.theory
             doc.string(Fields.theory_facet) = block.theory
-            doc.string(Fields.theory_base) = block.theory_base
             doc.string(Fields.file) = block.file.implode
             doc.string(Fields.url_path) = block.url_path.implode
             doc.string(Fields.command) = block.command
@@ -375,7 +372,7 @@ object Find_Facts {
     def solr_field(field: Field): Solr.Field =
       field match {
         case Field.session => Fields.session
-        case Field.theory => Fields.theory_base
+        case Field.theory => Fields.theory
         case Field.command => Fields.command
         case Field.source => Fields.src
         case Field.names => Fields.names
