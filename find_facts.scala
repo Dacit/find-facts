@@ -250,23 +250,22 @@ object Find_Facts {
       db: Solr.Database,
       query: Solr.Source,
       cursor: Option[String] = None,
-      chunk_size: Int = 10
+      max_results: Int = 10
     ): Blocks =
-      db.execute_query(Fields.id, stored_fields, query, cursor, chunk_size,
+      db.execute_query(Fields.id, stored_fields, query, cursor, max_results,
         { results =>
           val next_cursor = results.next_cursor
-          val blocks = results.map(read_block).take(chunk_size).toList
+          val blocks = results.map(read_block).toList
           Blocks(results.num_found, blocks, next_cursor)
-        })
+        }, more_chunks = 0)
 
     def stream_blocks(
       db: Solr.Database,
       query: Solr.Source,
       stream: Iterator[Block] => Unit,
       cursor: Option[String] = None,
-      chunk_size: Int = 10000
     ): Unit =
-      db.execute_query(Fields.id, stored_fields, query, cursor, chunk_size,
+      db.execute_query(Fields.id, stored_fields, query, cursor, 10000,
         { results =>
           stream(results.map(read_block))
         })

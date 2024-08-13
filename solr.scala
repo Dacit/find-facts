@@ -242,7 +242,8 @@ object Solr {
   class Results private[Solr](
     solr: EmbeddedSolrServer,
     query: SolrQuery,
-    private var cursor: String
+    private var cursor: String,
+    private var more_chunks: Int = -1
   ) extends Iterator[Result] {
     private def response: QueryResponse =
       solr.query(query.set(CursorMarkParams.CURSOR_MARK_PARAM, cursor))
@@ -257,8 +258,9 @@ object Solr {
     def next(): Result = {
       val res = new Result(_iterator.next())
 
-      if (!_iterator.hasNext && next_cursor != cursor) {
+      if (!_iterator.hasNext && next_cursor != cursor && more_chunks != 0) {
         cursor = next_cursor
+        more_chunks = more_chunks - 1
         _response = response
         _iterator = _response.getResults.iterator
       }
@@ -325,6 +327,7 @@ object Solr {
       cursor: Option[String],
       chunk_size: Int,
       make_result: Results => A,
+      more_chunks: Int = -1
     ): A = {
       val query = new SolrQuery(q)
         .setFields(fields.map(_.name): _*)
@@ -333,7 +336,7 @@ object Solr {
         .addSort(id.name, SolrQuery.ORDER.asc)
 
       val cursor1 = cursor.getOrElse(CursorMarkParams.CURSOR_MARK_START)
-      make_result(new Results(solr, query, cursor1))
+      make_result(new Results(solr, query, cursor1, more_chunks))
     }
 
     def transaction[A](body: => A): A =
