@@ -9,7 +9,7 @@ package isabelle
 import scala.jdk.CollectionConverters.*
 
 import org.apache.solr.client.solrj.embedded.EmbeddedSolrServer
-import org.apache.solr.client.solrj.request.json.{JsonQueryRequest, TermsFacetMap}
+import org.apache.solr.client.solrj.request.json.{JsonQueryRequest, TermsFacetMap, DomainMap}
 import org.apache.solr.client.solrj.response.json.{BucketJsonFacet, NestableJsonFacet}
 import org.apache.solr.client.solrj.response.{FacetField, QueryResponse}
 import org.apache.solr.client.solrj.{SolrClient, SolrQuery}
@@ -43,10 +43,11 @@ object Solr {
     if (!s.toList.exists(Symbol.is_ascii_blank)) escape(s, special - "*" - "?")
     else error("Invalid whitespace character in wildcard: " + quote(s))
 
-  def filter(field: Field, x: Source): Source = field.name + ":" + x
+  def filter(field: Field, x: Source, tag: String = ""): Source = 
+    if_proper(tag, "{!tag=" + tag + "}") + field.name + ":" + x
 
   def infix(op: Source, args: Iterable[Source]): Source = {
-    val body = args.iterator.filter(_.nonEmpty).mkString(" " + op + " ")
+    val body = args.iterator.filterNot(_.isBlank).mkString(" " + op + " ")
     if_proper(body, enclose(body))
   }
 
@@ -56,9 +57,13 @@ object Solr {
   def and(args: Source*): Source = AND(args)
   def or(args: Source*): Source = OR(args)
 
-  def exclude(from: Source, arg: Source): Source = from + if_proper(arg, " -" + arg)
+  def exclude(arg: Source): Source = if_proper(arg, "-" + arg)
 
   val query_all: Source = "*:" + all
+
+  type Query = List[Source]
+  def query(args: Source*): Query = args.toList
+  def fq(args: Query): Source = if (args.nonEmpty) AND(args) else query_all
 
 
   /** solr schema **/
@@ -323,13 +328,13 @@ object Solr {
     def execute_query[A](
       id: Field,
       fields: List[Field],
-      q: Source,
+      q: Query,
       cursor: Option[String],
       chunk_size: Int,
       make_result: Results => A,
       more_chunks: Int = -1
     ): A = {
-      val query = new SolrQuery(q)
+      val query = new SolrQuery(fq(q))
         .setFields(fields.map(_.name): _*)
         .setRows(chunk_size)
         .addSort("score", SolrQuery.ORDER.desc)
@@ -349,24 +354,29 @@ object Solr {
 
     def execute_facet_query[A](
       fields: List[Field],
-      q: Source,
+      q: Query,
       make_result: Facet_Result => A,
       max_terms: Int = -1
     ): A = {
-      val query = new JsonQueryRequest().setQuery(q).setLimit(0)
+      val query = new JsonQueryRequest().setQuery(query_all).setLimit(0)
+      q.foreach(query.withFilter)
 
-      for (field <- fields)
-        query.withFacet(field.name, new TermsFacetMap(field.name).setLimit(max_terms))
+      for (field <- fields) {
+        val facet =
+          new TermsFacetMap(field.name).setLimit(max_terms).withDomain(
+            new DomainMap().withTagsToExclude(field.name))
+        query.withFacet(field.name, facet)
+      }
 
       make_result(new Facet_Result(query.process(solr).getJsonFacetingResponse))
     }
 
     def execute_stats_query[A](
       fields: List[Field],
-      q: Source,
+      q: Query,
       make_result: Stat_Result => A
     ): A = {
-      val query = new JsonQueryRequest().setQuery(q).setLimit(0)
+      val query = new JsonQueryRequest().setQuery(fq(q)).setLimit(0)
 
       for (field <- fields) query.withStatFacet(count_field(field), "unique(" + field.name + ")")
 

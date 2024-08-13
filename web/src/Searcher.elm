@@ -282,18 +282,17 @@ filter_query: Filter -> Query.Filter
 filter_query filter =
   Query.Field_Filter filter.field (filter.value |> atoms_query)
 
-facet_query: Facet -> Query.Filter
-facet_query facet =
-  Query.Field_Filter facet.field (Set.toList facet.terms |> List.map Query.Phrase)
+facet_query: Facet -> Query.Select
+facet_query facet = Query.Select facet.field (Set.toList facet.terms)
 
 search_query: Search -> Query.Query
 search_query search =
   let (exclude, filters) = search.filters |> Array.toList |> List.partition .exclude
   in Query.Query (
     (list_if (search.any_filter /= "") (search.any_filter |> atoms_query |> Query.Any_Filter)) ++
-    (filters |> List.map filter_query) ++
-    (Dict.toList search.facets |> List.map Tuple.second |> List.map facet_query))
+    (filters |> List.map filter_query))
     (exclude |> List.map filter_query)
+    (Dict.toList search.facets |> List.map Tuple.second |> List.map facet_query)
 
 get_query: Model -> Query.Query
 get_query (Model model) = search_query model.search

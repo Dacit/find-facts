@@ -15,11 +15,12 @@ import Json.Encode as Encode
 
 type Atom = Value String | Phrase String | Wildcard String
 type Filter = Any_Filter (List Atom) | Field_Filter String (List Atom)
-type alias Query = {filters: List Filter, exclude: List Filter}
+type alias Select = {field: String, values: List String}
+type alias Query = {filters: List Filter, exclude: List Filter, selects: List Select}
 type alias Query_Blocks = {query: Query, cursor: String}
 
 empty: Query
-empty = Query [] []
+empty = Query [] [] []
 
 empty_atom: Atom -> Bool
 empty_atom atom =
@@ -54,11 +55,18 @@ encode_filter filter =
     Field_Filter field atoms ->
       Encode.object [("either", Encode.list encode_atom atoms), ("field", Encode.string field)]
 
+encode_select: Select -> Encode.Value
+encode_select select =
+  Encode.object [
+    ("field", Encode.string select.field),
+    ("values", Encode.list Encode.string select.values)]
+
 encode_query: Query -> Encode.Value
 encode_query query =
   Encode.object [
     ("filters", Encode.list encode_filter query.filters),
-    ("exclude", Encode.list encode_filter query.exclude)]
+    ("exclude", Encode.list encode_filter query.exclude),
+    ("selects", Encode.list encode_select query.selects)]
 
 encode_query_blocks: Query_Blocks -> Encode.Value
 encode_query_blocks query_blocks =

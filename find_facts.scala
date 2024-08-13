@@ -65,10 +65,16 @@ object Find_Facts {
     def fields: List[Field] = List(Field.session, Field.theory, Field.source, Field.names)
   }
 
+  case class Select(field: Field, values: List[String])
+  
   object Query {
     def apply(filters: Filter*): Query = new Query(filters.toList)
   }
-  case class Query(filters: List[Filter] = Nil, exclude: List[Filter] = Nil)
+
+  case class Query(
+    filters: List[Filter] = Nil,
+    exclude: List[Filter] = Nil,
+    selects: List[Select] = Nil)
 
 
   /* stats and facets */
@@ -216,7 +222,7 @@ object Find_Facts {
 
     /* operations */
 
-    def read_domain(db: Solr.Database, query: Solr.Source = Solr.query_all): Set[String] =
+    def read_domain(db: Solr.Database, query: Solr.Query = Nil): Set[String] =
       db.execute_query(Fields.id, List(Fields.id), query, None, 100000,
         { results =>
           results.map(_.string(Fields.id)).toSet
@@ -248,7 +254,7 @@ object Find_Facts {
 
     def read_blocks(
       db: Solr.Database,
-      query: Solr.Source,
+      query: Solr.Query,
       cursor: Option[String] = None,
       max_results: Int = 10
     ): Blocks =
@@ -261,7 +267,7 @@ object Find_Facts {
 
     def stream_blocks(
       db: Solr.Database,
-      query: Solr.Source,
+      query: Solr.Query,
       stream: Iterator[Block] => Unit,
       cursor: Option[String] = None,
     ): Unit =
@@ -272,8 +278,9 @@ object Find_Facts {
 
     def update_theory(db: Solr.Database, theory_name: String, blocks: List[Block]): Unit =
       db.transaction {
-        val delete =
-          read_domain(db, Solr.filter(Fields.theory, Solr.phrase(theory_name))) -- blocks.map(_.id)
+        val present =
+          read_domain(db, Solr.query(Solr.filter(Fields.theory, Solr.phrase(theory_name))))
+        val delete = present -- blocks.map(_.id)
 
         if (delete.nonEmpty) db.execute_batch_delete(delete.toList)
 
@@ -307,11 +314,12 @@ object Find_Facts {
 
     def delete_session(db: Solr.Database, session_name: String): Unit =
       db.transaction {
-        val delete = read_domain(db, Solr.filter(Fields.session, Solr.phrase(session_name)))
+        val delete =
+          read_domain(db, Solr.query(Solr.filter(Fields.session, Solr.phrase(session_name))))
         if (delete.nonEmpty) db.execute_batch_delete(delete.toList)
       }
 
-    def query_stats(db: Solr.Database, query: Solr.Source): Stats =
+    def query_stats(db: Solr.Database, query: Solr.Query): Stats =
       db.execute_stats_query(
         List(Fields.session_facet, Fields.theory_facet, Fields.command, Fields.consts_facet,
           Fields.typs_facet, Fields.thms_facet, Fields.start_line),
@@ -328,7 +336,7 @@ object Find_Facts {
           Stats(results, sessions, theories, commands, consts, typs, thms)
         })
 
-    def query_facets(db: Solr.Database, query: Solr.Source): Facets =
+    def query_facets(db: Solr.Database, query: Solr.Query): Facets =
       db.execute_facet_query(
         List(Fields.session_facet, Fields.theory_facet, Fields.command, Fields.kinds,
           Fields.consts_facet, Fields.typs_facet, Fields.thms_facet),
@@ -361,7 +369,7 @@ object Find_Facts {
         case Field.kinds => Fields.kinds
       }
 
-    def solr_query(query: Query): Solr.Source = {
+    def solr_query(query: Query): Solr.Query = {
       def solr_atom(atom: Atom): List[Solr.Source] =
         atom match {
           case Atom.Value(s) if s.isEmpty => Nil
@@ -384,16 +392,23 @@ object Find_Facts {
           case any@Any_Filter(atoms) => any.fields.flatMap(solr_atoms(_, atoms))
         }
 
-      val filter = Solr.AND(query.filters.map(filter => Solr.OR(solr_filter(filter))))
-      val source = query.exclude.flatMap(solr_filter).foldLeft(filter)(Solr.exclude)
-      if (source.isEmpty) Solr.query_all else source
+      def solr_select(select: Select): List[Solr.Source] = {
+        val field = solr_field(select.field)
+        select.values.map(Solr.phrase).map(Solr.filter(field, _, field.name))
+      }
+
+      val filter = query.filters.map(filter => Solr.OR(solr_filter(filter)))
+      val exclude = query.exclude.flatMap(solr_filter).map(Solr.exclude)
+      val selects = query.selects.flatMap(solr_select)
+
+      filter ::: exclude ::: selects
     }
   }
 
   def open_database(): Solr.Database = Solr.open_database(Find_Facts.private_data)
 
   def query_block(db: Solr.Database, id: String): Option[Block] = {
-    val query = Solr.filter(Find_Facts.private_data.Fields.id, Solr.phrase(id))
+    val query = Solr.query(Solr.filter(Find_Facts.private_data.Fields.id, Solr.phrase(id)))
     Find_Facts.private_data.read_blocks(db, query).blocks.headOption
   }
 
@@ -615,11 +630,19 @@ object Find_Facts {
           }
       } yield filter
 
+    def select(json: JSON.T): Option[Select] = 
+      for {
+        name <- JSON.string(json, "field")
+        field <- field(name)
+        values <- JSON.strings(json, "values")
+      } yield Select(field, values)
+
     def query(json: JSON.T): Option[Query] =
       for {
         filters <- JSON.list(json, "filters", filter)
         exclude <- JSON.list(json, "exclude", filter)
-      } yield Query(filters, exclude)
+        selects <- JSON.list(json, "selects", select)
+      } yield Query(filters, exclude, selects)
 
     def query_blocks(json: JSON.T): Option[Query_Blocks] =
       for {
