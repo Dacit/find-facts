@@ -368,7 +368,7 @@ object Find_Facts {
           case Atom.Value(s) if s.isEmpty => Nil
           case Atom.Value(s) => List(Solr.term(s))
           case Atom.Wildcard(s) =>
-            val terms = s.split("\\S+").toList.filterNot(_.isBlank)
+            val terms = s.split("\\s+").toList.filterNot(_.isBlank)
             if (terms.isEmpty) Nil else terms.map(Solr.wildcard)
           case Atom.Phrase(s) => List(Solr.phrase(s))
         }
