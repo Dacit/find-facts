@@ -55,25 +55,20 @@ object Find_Facts {
     case Wildcard(s: String) extends Atom
   }
 
-  enum Term {
-    case Or(atoms: List[Atom]) extends Term
-    case Not(atom: Atom) extends Term
-  }
-
   enum Field {
     case session, theory, command, source, names, consts, typs, thms, kinds
   }
 
   sealed trait Filter
-  case class Field_Filter(field: Field, term: Term) extends Filter
-  case class Any_Filter(term: Term) extends Filter {
+  case class Field_Filter(field: Field, either: List[Atom]) extends Filter
+  case class Any_Filter(either: List[Atom]) extends Filter {
     def fields: List[Field] = List(Field.session, Field.theory, Field.source, Field.names)
   }
 
   object Query {
-    def apply(filters: Filter*): Query = Query(filters.toList)
+    def apply(filters: Filter*): Query = new Query(filters.toList)
   }
-  case class Query(filters: List[Filter])
+  case class Query(filters: List[Filter] = Nil, exclude: List[Filter] = Nil)
 
 
   /* stats and facets */
@@ -351,23 +346,8 @@ object Find_Facts {
           Facets(sessions, theories, commands, kinds, consts, typs, thms)
         })
 
+
     /* queries */
-
-    def solr_atom(atom: Atom): Solr.Source =
-      atom match {
-        case Atom.Value(s) if s.isEmpty => Solr.all
-        case Atom.Value(s) => Solr.term(s)
-        case Atom.Wildcard(s) =>
-          val terms = s.split("\\S+").toList.filterNot(_.isBlank)
-          if (terms.isEmpty) Solr.all else Solr.OR(terms.map(Solr.wildcard))
-        case Atom.Phrase(s) => Solr.phrase(s)
-      }
-
-    def solr_term(term: Term): Solr.Source =
-      term match {
-        case Term.Or(atoms) => if (atoms.isEmpty) Solr.all else Solr.OR(atoms.map(solr_atom))
-        case Term.Not(atom) => Solr.not(solr_atom(atom))
-      }
 
     def solr_field(field: Field): Solr.Field =
       field match {
@@ -382,15 +362,33 @@ object Find_Facts {
         case Field.kinds => Fields.kinds
       }
 
-    def solr_filter(filter: Filter): Solr.Source =
-      filter match {
-        case Field_Filter(field, term) => Solr.filter(solr_field(field), solr_term(term))
-        case any@Any_Filter(term) =>
-          Solr.OR(any.fields.map(field => Solr.filter(solr_field(field), solr_term(term))))
-      }
+    def solr_query(query: Query): Solr.Source = {
+      def solr_atom(atom: Atom): List[Solr.Source] =
+        atom match {
+          case Atom.Value(s) if s.isEmpty => Nil
+          case Atom.Value(s) => List(Solr.term(s))
+          case Atom.Wildcard(s) =>
+            val terms = s.split("\\S+").toList.filterNot(_.isBlank)
+            if (terms.isEmpty) Nil else terms.map(Solr.wildcard)
+          case Atom.Phrase(s) => List(Solr.phrase(s))
+        }
 
-    def solr_query(query: Query): Solr.Source =
-      if (query.filters.isEmpty) Solr.query_all else Solr.AND(query.filters.map(solr_filter))
+      def solr_atoms(field: Field, atoms: List[Atom]): List[Solr.Source] =
+        for {
+          atom <- atoms
+          source <- solr_atom(atom)
+        } yield Solr.filter(solr_field(field), source)
+
+      def solr_filter(filter: Filter): List[Solr.Source] =
+        filter match {
+          case Field_Filter(field, atoms) => solr_atoms(field, atoms)
+          case any@Any_Filter(atoms) => any.fields.flatMap(solr_atoms(_, atoms))
+        }
+
+      val filter = Solr.AND(query.filters.map(filter => Solr.OR(solr_filter(filter))))
+      val source = query.exclude.flatMap(solr_filter).foldLeft(filter)(Solr.exclude)
+      if (source.isEmpty) Solr.query_all else source
+    }
   }
 
   def open_database(): Solr.Database = Solr.open_database(Find_Facts.private_data)
@@ -556,8 +554,7 @@ object Find_Facts {
               })
           }
 
-          val query =
-            Query(Field_Filter(Field.session, Term.Or(sessions.map(Atom.Phrase(_)))))
+          val query = Query(Field_Filter(Field.session, sessions.map(Atom.Phrase(_))))
           Find_Facts.query_stats(db, query)
         }
 
@@ -607,24 +604,23 @@ object Find_Facts {
         JSON.string(json, "phrase").map(Atom.Phrase(_)) orElse
         JSON.string(json, "wildcard").map(Atom.Wildcard(_))
 
-    def term(json: JSON.T): Option[Term] =
-      JSON.list(json, "in", atom).map(Term.Or(_)) orElse
-        JSON.value(json, "not", atom).map(Term.Not(_))
-
     def field(name: String): Option[Field] = Field.values.find(_.toString == name)
 
     def filter(json: JSON.T): Option[Filter] =
       for {
-        term <- JSON.value(json, "term", term)
+        atoms <- JSON.list(json, "either", atom)
         filter <-
           JSON.string(json, "field") match {
-            case None => Some(Any_Filter(term))
-            case Some(name) => for (field <- field(name)) yield Field_Filter(field, term)
+            case None => Some(Any_Filter(atoms))
+            case Some(name) => for (field <- field(name)) yield Field_Filter(field, atoms)
           }
       } yield filter
 
     def query(json: JSON.T): Option[Query] =
-      for (filters <- JSON.list(json, "filters", filter)) yield Query(filters)
+      for {
+        filters <- JSON.list(json, "filters", filter)
+        exclude <- JSON.list(json, "exclude", filter)
+      } yield Query(filters, exclude)
 
     def query_blocks(json: JSON.T): Option[Query_Blocks] =
       for {

@@ -14,13 +14,12 @@ import Json.Encode as Encode
 {- queries -}
 
 type Atom = Value String | Phrase String | Wildcard String
-type Term = Or (List Atom) | Not Atom
-type Filter = Any_Filter Term | Field_Filter String Term
-type alias Query = {filters: List Filter}
+type Filter = Any_Filter (List Atom) | Field_Filter String (List Atom)
+type alias Query = {filters: List Filter, exclude: List Filter}
 type alias Query_Blocks = {query: Query, cursor: String}
 
 empty: Query
-empty = Query []
+empty = Query [] []
 
 empty_atom: Atom -> Bool
 empty_atom atom =
@@ -29,20 +28,14 @@ empty_atom atom =
     Phrase s -> String.words s |> List.isEmpty
     Wildcard s -> String.words s |> List.isEmpty
 
-empty_term: Term -> Bool
-empty_term term =
-  case term of
-    Or atoms -> atoms |> List.all empty_atom
-    Not atom ->  empty_atom atom
-
 empty_filter: Filter -> Bool
 empty_filter filter =
   case filter of
-    Any_Filter term -> empty_term term
-    Field_Filter _ term -> empty_term term
+    Any_Filter atoms -> List.all empty_atom atoms
+    Field_Filter _ atoms -> List.all empty_atom atoms
 
 empty_query: Query -> Bool
-empty_query query = query.filters |> List.all empty_filter
+empty_query query = (query.filters ++ query.exclude) |> List.all empty_filter
 
 
 {- json encoding -}
@@ -54,22 +47,18 @@ encode_atom atom =
     Phrase phrase -> Encode.object [("phrase", Encode.string phrase)]
     Wildcard wildcard -> Encode.object [("wildcard", Encode.string wildcard)]
 
-encode_term: Term -> Encode.Value
-encode_term term =
-  case term of
-    Or atoms -> Encode.object [("in", Encode.list encode_atom atoms)]
-    Not atom -> Encode.object [("not", encode_atom atom)]
-
 encode_filter: Filter -> Encode.Value
 encode_filter filter =
   case filter of
-    Any_Filter term -> Encode.object [("term", encode_term term)]
-    Field_Filter field term ->
-      Encode.object [("term", encode_term term), ("field", Encode.string field)]
+    Any_Filter atoms -> Encode.object [("either", Encode.list encode_atom atoms)]
+    Field_Filter field atoms ->
+      Encode.object [("either", Encode.list encode_atom atoms), ("field", Encode.string field)]
 
 encode_query: Query -> Encode.Value
 encode_query query =
-  Encode.object [("filters", Encode.list encode_filter query.filters)]
+  Encode.object [
+    ("filters", Encode.list encode_filter query.filters),
+    ("exclude", Encode.list encode_filter query.exclude)]
 
 encode_query_blocks: Query_Blocks -> Encode.Value
 encode_query_blocks query_blocks =

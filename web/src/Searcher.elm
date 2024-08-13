@@ -275,24 +275,25 @@ explode_query s =
    Nothing ->
     (if String.contains "*" s || String.contains "?" s then Query.Wildcard else Query.Value) s
 
-term_query: String -> Query.Term
-term_query s = explode_query s |> List.singleton |> Query.Or
+atoms_query: String -> List Query.Atom
+atoms_query s = explode_query s |> List.singleton
 
 filter_query: Filter -> Query.Filter
 filter_query filter =
-  Query.Field_Filter filter.field (filter.value |>
-    (if filter.exclude then (explode_query >> Query.Not) else term_query))
+  Query.Field_Filter filter.field (filter.value |> atoms_query)
 
 facet_query: Facet -> Query.Filter
 facet_query facet =
-  Query.Field_Filter facet.field (Set.toList facet.terms |> List.map Query.Phrase |> Query.Or)
+  Query.Field_Filter facet.field (Set.toList facet.terms |> List.map Query.Phrase)
 
 search_query: Search -> Query.Query
 search_query search =
-  Query.Query (
-    (list_if (search.any_filter /= "") (search.any_filter |> term_query |> Query.Any_Filter)) ++
-    (Array.toList search.filters |> List.map filter_query) ++
+  let (exclude, filters) = search.filters |> Array.toList |> List.partition .exclude
+  in Query.Query (
+    (list_if (search.any_filter /= "") (search.any_filter |> atoms_query |> Query.Any_Filter)) ++
+    (filters |> List.map filter_query) ++
     (Dict.toList search.facets |> List.map Tuple.second |> List.map facet_query))
+    (exclude |> List.map filter_query)
 
 get_query: Model -> Query.Query
 get_query (Model model) = search_query model.search
