@@ -8,6 +8,7 @@ package isabelle
 
 import scala.annotation.tailrec
 import scala.collection.immutable.TreeMap
+import scala.collection.mutable
 
 
 object Find_Facts {
@@ -312,6 +313,14 @@ object Find_Facts {
           })
       }
 
+    def read_theory(db: Solr.Database, theory_name: String): List[Block] = {
+      val blocks = new mutable.ListBuffer[Block]
+      stream_blocks(db, Solr.query(Solr.filter(Fields.theory_facet, Solr.phrase(theory_name))), {
+        res => blocks ++= res
+      })
+      blocks.toList
+    }
+
     def delete_session(db: Solr.Database, session_name: String): Unit =
       db.transaction {
         val delete =
@@ -431,29 +440,6 @@ object Find_Facts {
     document_info: Document_Info,
     theory_context: Export.Theory_Context
   ): List[Block] = {
-    val elements = Browser_Info.default_elements.copy(entity = Markup.Elements.empty)
-    val node_context = Browser_Info.Node_Context.empty
-
-    val theory = theory_context.theory
-    val snapshot =
-      Build.read_theory(theory_context).getOrElse(error("Missing snapshot for " + theory))
-    val version = snapshot.version.id
-    val blocks = Thy_Blocks.read_blocks(snapshot)
-    val full_src = blocks.map(_.source).mkString
-    val document = Line.Document(full_src)
-    val num_lines = document.lines.length
-
-    def check(block: Thy_Blocks.Block): Unit = {
-      if (block.spans.isEmpty) error("Empty block: " + block)
-      val line_range = document.range(block.source_range)
-      if (line_range.start.line != block.pos.line)
-        error("Inconsistent start: " + line_range.start.line + ", " + block.pos.line)
-      if (line_range.stop.line != block.pos.line + block.lines)
-        error("Inconsistent stop: " + line_range.stop.line + ", " + (block.pos.line + block.lines))
-      if (block.source != block.source_range.substring(full_src))
-        error("Inconsistent src: " + block.source + ", " + block.source_range.substring(full_src))
-    }
-
     def sanitize_body(body: XML.Body): XML.Body = {
       def trim(source: XML.Body): XML.Body = source match {
         case XML.Elem(markup, body) :: xs => XML.Elem(markup, trim(body)) :: xs
@@ -470,8 +456,33 @@ object Find_Facts {
       filter(trim(body.reverse).reverse)
     }
 
-    def get_source(start: Line.Position, stop: Line.Position): String =
-      Text.Range(document.offset(start).get, document.offset(stop).get).substring(document.text)
+    def expand_block(block: Thy_Blocks.Block): List[Thy_Blocks.Block] =
+      block match {
+        case Thy_Blocks.Thy(inner) => inner.flatMap(expand_block)
+        case e@Thy_Blocks.Decl(inner) =>
+          val inner1 = inner.flatMap(expand_block)
+          if (inner.length > 1) e :: inner1 else List(e)
+        case _ => List(block)
+      }
+
+    val elements = Browser_Info.default_elements.copy(entity = Markup.Elements.empty)
+    val node_context = Browser_Info.Node_Context.empty
+
+    val theory = theory_context.theory
+    val snapshot =
+      Build.read_theory(theory_context).getOrElse(error("Missing snapshot for " + theory))
+    val version = snapshot.version.id
+    val content = XML.content(snapshot.xml_markup())
+
+    val index = Symbol.Index(content)
+    val document = Line.Document(content)
+
+    def get_source(start: Line.Position, stop: Line.Position): String = {
+      val range = Text.Range(document.offset(start).get, document.offset(stop).get)
+      Symbol.decode(range.substring(document.text))
+    }
+
+    val num_lines = document.lines.length
 
     val thy_entities =
       for {
@@ -479,44 +490,36 @@ object Find_Facts {
         if Path.explode(entity.file).canonical == name.path.canonical
       } yield entity
 
-    val entities = TreeMap.from(thy_entities.groupBy(_.range.start).toList)
-
-    def expand_block(block: Thy_Blocks.Block): List[Thy_Blocks.Block] =
-      block match {
-        case s: Thy_Blocks.Span if s.is_whitespace => Nil
-        case Thy_Blocks.Thy(inner) => inner.flatMap(expand_block)
-        case e@Thy_Blocks.Decl(inner) => e :: inner.flatMap(expand_block)
-        case _ => List(block)
-      }
+    val entities =
+      TreeMap.from(thy_entities.groupBy(entity => index.decode(entity.range).start).toList)
 
     val session = theory_context.session_context.session_name
     val theory_info =
       document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
-    val url_path = browser_info_context.theory_html(theory_info)
+    val url_path =
+      browser_info_context.theory_dir(theory_info) + browser_info_context.theory_html(theory_info)
 
-    blocks.flatMap(expand_block).map { block =>
-      check(block)
+    def read_block(range: Text.Range, command: String): Block = {
+      val line_range = document.range(range)
 
-      val symbol_range = block.symbol_range
-      val id = theory + "#" + symbol_range.start + ".." + symbol_range.stop
-      val line_range = document.range(block.source_range)
+      val id = theory + "#" + range.start + ".." + range.stop
 
       val src_before =
         get_source(Line.Position((line_range.start.line - 5).max(0)), line_range.start)
-      val src = Symbol.decode(block.source)
+      val src = Symbol.decode(document.get_text(range).get)
       val src_after =
         get_source(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines)))
 
-      val markup = sanitize_body(block.body)
-      val html = node_context.make_html(elements, block.body)
+      val body = snapshot.xml_markup(range)
+      val markup = sanitize_body(body)
+      val html = node_context.make_html(elements, body)
 
-      val maybe_entities =
-        entities.range(symbol_range.start, symbol_range.stop).values.toList.flatten.distinct
+      val maybe_entities = entities.range(range.start, range.stop).values.toList.flatten.distinct
       def get_entities(kind: String): List[String] =
         for {
           entity <- maybe_entities
           if entity.export_kind == kind
-          if symbol_range.contains(entity.range)
+          if range.contains(index.decode(entity.range))
         } yield entity.name
 
       val typs = get_entities(Export_Theory.Kind.TYPE)
@@ -524,10 +527,22 @@ object Find_Facts {
       val thms = get_entities(Export_Theory.Kind.THM)
 
       Block(id = id, version = version, session = session, theory = theory, file = name.path,
-        url_path = url_path, command = block.command, start_line = line_range.start.line,
+        url_path = url_path, command = command, start_line = line_range.start.line,
         src_before = src_before, src = src, src_after = src_after, markup = markup, html = html,
         consts = consts, typs = typs, thms = thms)
     }
+
+    val thy_blocks =
+      for (block <- Thy_Blocks.read_blocks(snapshot).flatMap(expand_block))
+      yield read_block(block.range, block.command)
+
+    val comment =
+      Markup.Elements(Markup.COMMENT, Markup.COMMENT1, Markup.COMMENT2, Markup.COMMENT3)
+    val comments =
+      for (info <- snapshot.select(Text.Range.full, comment, _ => _ => Some(())))
+      yield read_block(info.range, "")
+
+    thy_blocks ::: comments
   }
 
   def index_blocks(
