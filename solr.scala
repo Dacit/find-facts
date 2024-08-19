@@ -22,6 +22,7 @@ object Solr {
   
   /** query language */
 
+  val wildcard = Set('*', '?')
   val special =
     Set("+", "-", "&&", "||", "!", "(", ")", "{", "}", "[", "]", "^", "\"", "~", "*", "?", ":", "/")
 
@@ -40,7 +41,7 @@ object Solr {
   def range(from: Int, to: Int): Source = "[" + from + " TO " + to + "]"
   def phrase(s: String): Source = quote(escape(s, special))
   def wildcard(s: String): Source =
-    if (!s.toList.exists(Symbol.is_ascii_blank)) escape(s, special - "*" - "?")
+    if (!s.toList.exists(Symbol.is_ascii_blank)) escape(s, special -- wildcard.map(_.toString))
     else error("Invalid whitespace character in wildcard: " + quote(s))
 
   def filter(field: Field, x: Source, tag: String = ""): Source = 
