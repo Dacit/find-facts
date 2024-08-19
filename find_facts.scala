@@ -225,11 +225,11 @@ object Find_Facts {
 
     /* operations */
 
-    def read_domain(db: Solr.Database, query: Solr.Query = Nil): Set[String] =
-      db.execute_query(Fields.id, List(Fields.id), query, None, 100000,
+    def read_domain(db: Solr.Database, q: Solr.Source): Set[String] =
+      db.execute_query(Fields.id, List(Fields.id), None, 100000,
         { results =>
           results.map(_.string(Fields.id)).toSet
-        })
+        }, q = q)
 
     def read_block(res: Solr.Result): Block = {
       val id = res.string(Fields.id)
@@ -258,33 +258,33 @@ object Find_Facts {
 
     def read_blocks(
       db: Solr.Database,
-      query: Solr.Query,
+      q: Solr.Source,
+      fq: List[Solr.Source],
       cursor: Option[String] = None,
       max_results: Int = 10
     ): Blocks =
-      db.execute_query(Fields.id, stored_fields, query, cursor, max_results,
+      db.execute_query(Fields.id, stored_fields, cursor, max_results,
         { results =>
           val next_cursor = results.next_cursor
           val blocks = results.map(read_block).toList
           Blocks(results.num_found, blocks, next_cursor)
-        }, more_chunks = 0)
+        }, q = q, fq = fq, more_chunks = 0)
 
     def stream_blocks(
       db: Solr.Database,
-      query: Solr.Query,
+      q: Solr.Source,
       stream: Iterator[Block] => Unit,
       cursor: Option[String] = None,
     ): Unit =
-      db.execute_query(Fields.id, stored_fields, query, cursor, 10000,
+      db.execute_query(Fields.id, stored_fields, cursor, 10000,
         { results =>
           stream(results.map(read_block))
-        })
+        }, q = q)
 
     def update_theory(db: Solr.Database, theory_name: String, blocks: List[Block]): Unit =
       db.transaction {
-        val present =
-          read_domain(db, Solr.query(Solr.filter(Fields.theory, Solr.phrase(theory_name))))
-        val delete = present -- blocks.map(_.id)
+        val delete =
+          read_domain(db, Solr.filter(Fields.theory, Solr.phrase(theory_name))) -- blocks.map(_.id)
 
         if (delete.nonEmpty) db.execute_batch_delete(delete.toList)
 
@@ -319,7 +319,7 @@ object Find_Facts {
 
     def read_theory(db: Solr.Database, theory_name: String): List[Block] = {
       val blocks = new mutable.ListBuffer[Block]
-      stream_blocks(db, Solr.query(Solr.filter(Fields.theory_facet, Solr.phrase(theory_name))), {
+      stream_blocks(db, Solr.filter(Fields.theory_facet, Solr.phrase(theory_name)), {
         res => blocks ++= res
       })
       blocks.toList
@@ -327,16 +327,14 @@ object Find_Facts {
 
     def delete_session(db: Solr.Database, session_name: String): Unit =
       db.transaction {
-        val delete =
-          read_domain(db, Solr.query(Solr.filter(Fields.session, Solr.phrase(session_name))))
+        val delete = read_domain(db, Solr.filter(Fields.session, Solr.phrase(session_name)))
         if (delete.nonEmpty) db.execute_batch_delete(delete.toList)
       }
 
-    def query_stats(db: Solr.Database, query: Solr.Query): Stats =
+    def query_stats(db: Solr.Database, q: Solr.Source, fq: List[Solr.Source]): Stats =
       db.execute_stats_query(
         List(Fields.session_facet, Fields.theory_facet, Fields.command, Fields.consts_facet,
           Fields.typs_facet, Fields.thms_facet, Fields.start_line),
-        query,
         { res =>
           val results = res.count
           val sessions = res.count(Fields.session_facet)
@@ -347,13 +345,12 @@ object Find_Facts {
           val thms = res.count(Fields.thms_facet)
 
           Stats(results, sessions, theories, commands, consts, typs, thms)
-        })
+        }, q = q, fq = fq)
 
-    def query_facets(db: Solr.Database, query: Solr.Query): Facets =
+    def query_facets(db: Solr.Database, q: Solr.Source, fq: List[Solr.Source]): Facets =
       db.execute_facet_query(
         List(Fields.chapter, Fields.session_facet, Fields.theory_facet, Fields.command, Fields.kinds,
           Fields.consts_facet, Fields.typs_facet, Fields.thms_facet),
-        query,
         { res =>
           val chapter = res.string(Fields.chapter)
           val sessions = res.string(Fields.session_facet)
@@ -365,7 +362,7 @@ object Find_Facts {
           val thms = res.string(Fields.thms_facet)
 
           Facets(chapter, sessions, theories, commands, kinds, consts, typs, thms)
-        })
+        }, q = q, fq = fq)
 
 
     /* queries */
@@ -389,7 +386,7 @@ object Find_Facts {
         case Field.kinds => Fields.kinds
       }
 
-    def solr_query(query: Query): Solr.Query = {
+    def solr_query(query: Query): (Solr.Source, List[Solr.Source]) = {
       def solr_atom(atom: Atom): List[Solr.Source] =
         atom match {
           case Atom.Value(s) if s.isEmpty => Nil
@@ -412,35 +409,40 @@ object Find_Facts {
           case any@Any_Filter(atoms) => any.fields.flatMap(solr_atoms(_, atoms))
         }
 
-      def solr_select(select: Select): List[Solr.Source] = {
+      def solr_select(select: Select): Solr.Source = {
         val field = solr_field(select.field, select = true)
-        select.values.map(Solr.phrase).map(Solr.filter(field, _, field.name))
+        Solr.tag(field.name, Solr.filter(field, Solr.OR(select.values.map(Solr.phrase))))
       }
 
       val filter = query.filters.map(filter => Solr.OR(solr_filter(filter)))
       val exclude = query.exclude.flatMap(solr_filter).map(Solr.exclude)
-      val selects = query.selects.flatMap(solr_select)
+      val selects = query.selects.map(solr_select)
 
-      filter ::: exclude ::: selects
+      (Solr.AND(filter ::: exclude), selects)
     }
   }
 
   def open_database(): Solr.Database = Solr.open_database(Find_Facts.private_data)
 
   def query_block(db: Solr.Database, id: String): Option[Block] = {
-    val query = Solr.query(Solr.filter(Find_Facts.private_data.Fields.id, Solr.phrase(id)))
-    Find_Facts.private_data.read_blocks(db, query).blocks.headOption
+    val q = Solr.filter(Find_Facts.private_data.Fields.id, Solr.phrase(id))
+    Find_Facts.private_data.read_blocks(db, q, Nil).blocks.headOption
   }
 
-  def query_blocks(db: Solr.Database, query: Query, cursor: Option[String] = None): Blocks =
-    Find_Facts.private_data.read_blocks(db, Find_Facts.private_data.solr_query(query),
-      cursor = cursor)
+  def query_blocks(db: Solr.Database, query: Query, cursor: Option[String] = None): Blocks = {
+    val (q, fq) = Find_Facts.private_data.solr_query(query)
+    Find_Facts.private_data.read_blocks(db, q, fq, cursor = cursor)
+  }
 
-  def query_stats(db: Solr.Database, query: Query): Stats =
-    Find_Facts.private_data.query_stats(db, Find_Facts.private_data.solr_query(query))
+  def query_stats(db: Solr.Database, query: Query): Stats = {
+    val (q, fq) = Find_Facts.private_data.solr_query(query)
+    Find_Facts.private_data.query_stats(db, q, fq)
+  }
 
-  def query_facet(db: Solr.Database, query: Query): Facets =
-    Find_Facts.private_data.query_facets(db, Find_Facts.private_data.solr_query(query))
+  def query_facet(db: Solr.Database, query: Query): Facets = {
+    val (q, fq) = Find_Facts.private_data.solr_query(query)
+    Find_Facts.private_data.query_facets(db, q, fq)
+  }
 
 
   /** indexing **/

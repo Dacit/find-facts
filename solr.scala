@@ -44,8 +44,7 @@ object Solr {
     if (!s.toList.exists(Symbol.is_ascii_blank)) escape(s, special -- wildcard.map(_.toString))
     else error("Invalid whitespace character in wildcard: " + quote(s))
 
-  def filter(field: Field, x: Source, tag: String = ""): Source =
-    if_proper(tag, "{!tag=" + tag + "}") + field.name + ":" + x
+  def filter(field: Field, x: Source): Source = field.name + ":" + x
 
   def infix(op: Source, args: Iterable[Source]): Source = {
     val body = args.iterator.filterNot(_.isBlank).mkString(" " + op + " ")
@@ -62,9 +61,7 @@ object Solr {
 
   val query_all: Source = "*:" + all
 
-  type Query = List[Source]
-  def query(args: Source*): Query = args.toList
-  def fq(args: Query): Source = if (args.nonEmpty) AND(args) else query_all
+  def tag(name: String, arg: Source): Source = "{!tag=" + name + "}" + arg
 
 
   /** solr schema **/
@@ -346,14 +343,16 @@ object Solr {
     def execute_query[A](
       id: Field,
       fields: List[Field],
-      q: Query,
       cursor: Option[String],
       chunk_size: Int,
       make_result: Results => A,
+      q: Source = query_all,
+      fq: List[Source] = Nil,
       more_chunks: Int = -1
     ): A = {
-      val query = new SolrQuery(fq(q))
+      val query = new SolrQuery(proper_string(q).getOrElse(query_all))
         .setFields(fields.map(_.name): _*)
+        .setFilterQueries(fq.filterNot(_.isBlank): _*)
         .setRows(chunk_size)
         .addSort("score", SolrQuery.ORDER.desc)
         .addSort(id.name, SolrQuery.ORDER.asc)
@@ -372,12 +371,13 @@ object Solr {
 
     def execute_facet_query[A](
       fields: List[Field],
-      q: Query,
       make_result: Facet_Result => A,
+      q: Source = query_all,
+      fq: List[Source] = Nil,
       max_terms: Int = -1
     ): A = {
-      val query = new JsonQueryRequest().setQuery(query_all).setLimit(0)
-      q.foreach(query.withFilter)
+      val query = new JsonQueryRequest().setQuery(proper_string(q).getOrElse(query_all)).setLimit(0)
+      fq.filterNot(_.isBlank).foreach(query.withFilter)
 
       for (field <- fields) {
         val facet =
@@ -391,10 +391,12 @@ object Solr {
 
     def execute_stats_query[A](
       fields: List[Field],
-      q: Query,
-      make_result: Stat_Result => A
+      make_result: Stat_Result => A,
+      q: Source = query_all,
+      fq: List[Source] = Nil
     ): A = {
-      val query = new JsonQueryRequest().setQuery(fq(q)).setLimit(0)
+      val query = new JsonQueryRequest().setQuery(proper_string(q).getOrElse(query_all)).setLimit(0)
+      fq.filterNot(_.isBlank).foreach(query.withFilter)
 
       for (field <- fields) query.withStatFacet(count_field(field), "unique(" + field.name + ")")
 
