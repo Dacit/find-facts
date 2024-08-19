@@ -370,16 +370,21 @@ object Find_Facts {
 
     /* queries */
 
-    def solr_field(field: Field): Solr.Field =
+    def solr_field(field: Field, select: Boolean = false): Solr.Field =
       field match {
         case Field.chapter => Fields.chapter
+        case Field.session if select => Fields.session_facet
         case Field.session => Fields.session
+        case Field.theory if select => Fields.theory_facet
         case Field.theory => Fields.theory
         case Field.command => Fields.command
         case Field.source => Fields.src
         case Field.names => Fields.names
+        case Field.consts if select => Fields.consts_facet
         case Field.consts => Fields.consts
+        case Field.typs if select => Fields.typs_facet
         case Field.typs => Fields.typs
+        case Field.thms if select => Fields.thms_facet
         case Field.thms => Fields.thms
         case Field.kinds => Fields.kinds
       }
@@ -408,7 +413,7 @@ object Find_Facts {
         }
 
       def solr_select(select: Select): List[Solr.Source] = {
-        val field = solr_field(select.field)
+        val field = solr_field(select.field, select = true)
         select.values.map(Solr.phrase).map(Solr.filter(field, _, field.name))
       }
 
