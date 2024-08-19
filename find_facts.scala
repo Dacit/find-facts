@@ -138,7 +138,7 @@ object Find_Facts {
         }
 
       private val symbol_pattern =
-         """\s*(::|[(){}\[\].,:"]|[^\p{ASCII}]|((?![^\p{ASCII}])[^(){}\[\].,:"\s])+)\s*""".r // TODO check
+         """\s*(::|[(){}\[\].,:"]|[^\p{ASCII}]|((?![^\p{ASCII}])[^(){}\[\].,:"\s])+)\s*""".r
 
       private val tokenize =
         Solr.Class("tokenizer", "WhitespaceTokenizerFactory", List("rule" -> "java"))
