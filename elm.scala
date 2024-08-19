@@ -39,7 +39,7 @@ object Elm {
     val src_dirs =
       JSON.strings(definition, "source-directories").getOrElse(
         error("Missing source directories in elm.json"))
-    
+
     def sources: List[JFile] =
       for {
         src_dir <- src_dirs

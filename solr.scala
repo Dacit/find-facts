@@ -19,7 +19,7 @@ import org.apache.solr.common.{SolrDocument, SolrInputDocument}
 
 object Solr {
   val solr_home = Path.explode("$ISABELLE_HOME_USER/solr")
-  
+
   /** query language */
 
   val wildcard = Set('*', '?')

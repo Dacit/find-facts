@@ -37,8 +37,8 @@ object Component_Elm {
     progress: Progress = new Progress
   ): Unit = {
     Isabelle_System.require_command("gunzip")
-    
-    
+
+
     /* component */
 
     val component = "elm-" + version

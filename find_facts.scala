@@ -67,7 +67,7 @@ object Find_Facts {
   }
 
   case class Select(field: Field, values: List[String])
-  
+
   object Query {
     def apply(filters: Filter*): Query = new Query(filters.toList)
   }
@@ -216,7 +216,7 @@ object Find_Facts {
     }
 
     lazy val fields: Solr.Fields = Solr.Fields(
-      Fields.id, Fields.version, Fields.chapter, Fields.session, Fields.session_facet, Fields.theory, 
+      Fields.id, Fields.version, Fields.chapter, Fields.session, Fields.session_facet, Fields.theory,
       Fields.theory_facet, Fields.file, Fields.url_path, Fields.command, Fields.start_line,
       Fields.src_before, Fields.src_after, Fields.src, Fields.markup, Fields.html, Fields.consts,
       Fields.consts_facet, Fields.typs, Fields.typs_facet, Fields.thms, Fields.thms_facet,
@@ -536,7 +536,7 @@ object Find_Facts {
       val thms = get_entities(Export_Theory.Kind.THM)
 
       Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
-        file = name.path, url_path = url_path, command = command, start_line = start_line, 
+        file = name.path, url_path = url_path, command = command, start_line = start_line,
         src_before = src_before, src = src, src_after = src_after, markup = markup, html = html,
         consts = consts, typs = typs, thms = thms)
     }
@@ -655,7 +655,7 @@ object Find_Facts {
           }
       } yield filter
 
-    def select(json: JSON.T): Option[Select] = 
+    def select(json: JSON.T): Option[Select] =
       for {
         name <- JSON.string(json, "field")
         field <- field(name)
