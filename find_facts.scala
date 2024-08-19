@@ -33,7 +33,7 @@ object Find_Facts {
     src: String,
     src_after: String,
     markup: XML.Body,
-    html: XML.Body,
+    html: String,
     consts: List[String],
     typs: List[String],
     thms: List[String]
@@ -195,8 +195,8 @@ object Find_Facts {
       val src_before = Solr.Field("src_before", Solr.Type.string, Solr.Indexed(false))
       val src_after = Solr.Field("src_after", Solr.Type.string, Solr.Indexed(false))
       val src = Solr.Field("src", Types.source)
-      val markup = Solr.Field("markup", Types.text, Solr.Indexed(false))
-      val html = Solr.Field("html", Types.text, Solr.Indexed(false))
+      val markup = Solr.Field("markup", Solr.Type.bytes, Solr.Indexed(false))
+      val html = Solr.Field("html", Solr.Type.bytes, Solr.Indexed(false))
       val consts = Solr.Field("consts", Types.name, Solr.Multi_Valued(true))
       val consts_facet =
         Solr.Field("consts_facet", Solr.Type.string, Solr.Multi_Valued(true) ::: Solr.Stored(false))
@@ -240,8 +240,8 @@ object Find_Facts {
       val src_before = res.string(Fields.src_before)
       val src = res.string(Fields.src)
       val src_after = res.string(Fields.src_after)
-      val markup = YXML.parse_body(YXML.Source(res.string(Fields.markup)))
-      val html = YXML.parse_body(YXML.Source(res.string(Fields.html)))
+      val markup = YXML.parse_body(res.bytes(Fields.markup))
+      val html = res.bytes(Fields.html).text
       val consts = res.list_string(Fields.consts)
       val typs = res.list_string(Fields.typs)
       val thms = res.list_string(Fields.thms)
@@ -299,8 +299,8 @@ object Find_Facts {
             doc.string(Fields.src_before) = block.src_before
             doc.string(Fields.src) = block.src
             doc.string(Fields.src_after) = block.src_after
-            doc.string(Fields.markup) = YXML.string_of_body(block.markup)
-            doc.string(Fields.html) = YXML.string_of_body(block.html)
+            doc.bytes(Fields.markup) = YXML.bytes_of_body(block.markup)
+            doc.bytes(Fields.html) = Bytes(block.html)
             doc.string(Fields.consts) = block.consts
             doc.string(Fields.consts_facet) = block.consts
             doc.string(Fields.typs) = block.typs
@@ -511,7 +511,8 @@ object Find_Facts {
 
       val body = snapshot.xml_markup(range)
       val markup = sanitize_body(body)
-      val html = node_context.make_html(elements, body)
+      val html =
+        HTML.output(node_context.make_html(elements, body), hidden = true, structural = false)
 
       val maybe_entities = entities.range(range.start, range.stop).values.toList.flatten.distinct
       def get_entities(kind: String): List[String] =
@@ -682,7 +683,7 @@ object Find_Facts {
         "start_line" -> block.start_line,
         "src_before" -> block.src_before,
         "src_after" -> block.src_after,
-        "html" -> XML.string_of_body(block.html),
+        "html" -> block.html,
         "consts" -> block.consts,
         "typs" -> block.typs,
         "thms" -> block.thms)

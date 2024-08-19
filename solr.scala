@@ -44,7 +44,7 @@ object Solr {
     if (!s.toList.exists(Symbol.is_ascii_blank)) escape(s, special -- wildcard.map(_.toString))
     else error("Invalid whitespace character in wildcard: " + quote(s))
 
-  def filter(field: Field, x: Source, tag: String = ""): Source = 
+  def filter(field: Field, x: Source, tag: String = ""): Source =
     if_proper(tag, "{!tag=" + tag + "}") + field.name + ":" + x
 
   def infix(op: Source, args: Iterable[Source]): Source = {
@@ -90,12 +90,13 @@ object Solr {
   /* types */
 
   object Type {
-    val boolean = Type("boolean", "BoolField")
+    val bool = Type("bool", "BoolField")
     val int = Type("int", "IntPointField")
     val long = Type("long", "LongPointField")
-    val float = Type("float", "FloatPointField")
     val double = Type("double", "DoublePointField")
     val string = Type("string", "StrField")
+    val bytes = Type("bytes", "BinaryField")
+    val date = Type("date", "DatePointField")
   }
 
   case class Type(name: String, cls: String, props: Properties.T = Nil, body: XML.Body = Nil) {
@@ -171,35 +172,51 @@ object Solr {
   }
 
   class Document private[Solr](val rep: SolrInputDocument) {
+    private def obj[A](a: A): Object = a.asInstanceOf[Object]
+    private def set[A](field: Field, x: A, f: A => Object = obj): Unit =
+      rep.addField(field.name, f(x))
+    private def set_option[A](field: Field, x: Option[A], f: A => Object = obj): Unit =
+      rep.addField(field.name, x.map(f).orNull)
+    private def set_list[A](field: Field, x: List[A], f: A => Object = obj): Unit =
+      rep.addField(field.name, x.map(f).toArray)
+
     object bool {
-      def update(field: Field, x: Boolean): Unit = rep.addField(field.name, x)
-      def update(field: Field, x: Option[Boolean]): Unit = rep.addField(field.name, x.orNull)
-      def update(field: Field, x: List[Boolean]): Unit = rep.addField(field.name, x.toArray)
+      def update(field: Field, x: Boolean): Unit = set(field, x)
+      def update(field: Field, x: Option[Boolean]): Unit = set_option(field, x)
+      def update(field: Field, x: List[Boolean]): Unit = set_list(field, x)
     }
     object int {
-      def update(field: Field, x: Int): Unit = rep.addField(field.name, x)
-      def update(field: Field, x: Option[Int]): Unit = rep.addField(field.name, x.orNull)
-      def update(field: Field, x: List[Int]): Unit = rep.addField(field.name, x.toArray)
+      def update(field: Field, x: Int): Unit = set(field, x)
+      def update(field: Field, x: Option[Int]): Unit = set_option(field, x)
+      def update(field: Field, x: List[Int]): Unit = set_list(field, x)
     }
     object long {
-      def update(field: Field, x: Long): Unit = rep.addField(field.name, x)
-      def update(field: Field, x: Option[Long]): Unit = rep.addField(field.name, x.orNull)
-      def update(field: Field, x: List[Long]): Unit = rep.addField(field.name, x.toArray)
-    }
-    object float {
-      def update(field: Field, x: Float): Unit = rep.addField(field.name, x)
-      def update(field: Field, x: Option[Float]): Unit = rep.addField(field.name, x.orNull)
-      def update(field: Field, x: List[Float]): Unit = rep.addField(field.name, x.toArray)
+      def update(field: Field, x: Long): Unit = set(field, x)
+      def update(field: Field, x: Option[Long]): Unit = set_option(field, x)
+      def update(field: Field, x: List[Long]): Unit = set_list(field, x)
     }
     object double {
-      def update(field: Field, x: Double): Unit = rep.addField(field.name, x)
-      def update(field: Field, x: Option[Double]): Unit = rep.addField(field.name, x.orNull)
-      def update(field: Field, x: List[Double]): Unit = rep.addField(field.name, x.toArray)
+      def update(field: Field, x: Double): Unit = set(field, x)
+      def update(field: Field, x: Option[Double]): Unit = set_option(field, x)
+      def update(field: Field, x: List[Double]): Unit = set_list(field, x)
     }
     object string {
-      def update(field: Field, x: String): Unit = rep.addField(field.name, x)
-      def update(field: Field, x: Option[String]): Unit = rep.addField(field.name, x.orNull)
-      def update(field: Field, x: List[String]): Unit = rep.addField(field.name, x.toArray)
+      def update(field: Field, x: String): Unit = set(field, x)
+      def update(field: Field, x: Option[String]): Unit = set_option(field, x)
+      def update(field: Field, x: List[String]): Unit = set_list(field, x)
+    }
+    object bytes {
+      private def value(bytes: Bytes): Array[Byte] =
+        if (bytes.size > Int.MaxValue) throw new IllegalArgumentException else bytes.make_array
+      def update(field: Field, x: Bytes): Unit = set(field, x, value)
+      def update(field: Field, x: Option[Bytes]): Unit = set_option(field, x, value)
+      def update(field: Field, x: List[Bytes]): Unit = set_list(field, x, value)
+    }
+    object date {
+      private def value(date: Date): java.util.Date = java.util.Date.from(date.rep.toInstant)
+      def update(field: Field, x: Date): Unit = set(field, x, value)
+      def update(field: Field, x: Option[Date]): Unit = set_option(field, x, value)
+      def update(field: Field, x: List[Date]): Unit = set_list(field, x, value)
     }
   }
 
@@ -207,42 +224,42 @@ object Solr {
   /* results */
 
   class Result private[Solr](rep: SolrDocument) {
-    private def single[A](field: Field): A = {
-      val elem = rep.getFieldValue(field.name)
-      if (elem == null) error("No such field: " + field.name) else elem.asInstanceOf[A]
+    private def single[A](field: Field, f: Object => A): A = {
+      val obj = rep.getFieldValue(field.name)
+      if (obj == null) error("No such field: " + field.name) else f(obj)
     }
-    private def option[A](field: Field): Option[A] = {
-      val elem = rep.getFieldValue(field.name)
-      if (elem == null) None else Some(elem.asInstanceOf[A])
+    private def get[A](field: Field, f: Object => A): Option[A] = {
+      val obj = rep.getFieldValue(field.name)
+      if (obj == null) None else Some(f(obj))
     }
-    private def list[A](field: Field): List[A] = {
-      val elems = rep.getFieldValues(field.name)
-      if (elems == null) Nil else elems.iterator().asScala.toList.map(_.asInstanceOf[A])
+    private def list[A](field: Field, f: Object => A): List[A] = {
+      val objs = rep.getFieldValues(field.name)
+      if (objs == null) Nil else objs.iterator().asScala.toList.map(f)
     }
 
-    def bool(field: Field): Boolean = single(field)
-    def get_bool(field: Field): Option[Boolean] = option(field)
-    def list_bool(field: Field): List[Boolean] = list(field)
+    def bool_value(obj: Object): Boolean = obj.asInstanceOf[Boolean]
+    def int_value(obj: Object): Int = obj.asInstanceOf[Int]
+    def long_value(obj: Object): Long = obj.asInstanceOf[Long]
+    def double_value(obj: Object): Double = obj.asInstanceOf[Double]
+    def string_value(obj: Object): String = obj.asInstanceOf[String]
+    def bytes_value(obj: Object): Bytes = Bytes(obj.asInstanceOf[Array[Byte]])
+    def date_value(obj: Object): Date = Date.instant(obj.asInstanceOf[java.util.Date].toInstant)
 
-    def int(field: Field): Int = single(field)
-    def get_int(field: Field): Option[Int] = option(field)
-    def list_int(field: Field): List[Int] = list(field)
+    def bool(field: Field): Boolean = single(field, bool_value)
+    def int(field: Field): Int = single(field, int_value)
+    def long(field: Field): Long = single(field, long_value)
+    def double(field: Field): Double = single(field, double_value)
+    def string(field: Field): String = single(field, string_value)
+    def bytes(field: Field): Bytes = single(field, bytes_value)
+    def date(field: Field): Date = single(field, date_value)
 
-    def long(field: Field): Long = single(field)
-    def get_long(field: Field): Option[Long] = option(field)
-    def list_long(field: Field): List[Long] = list(field)
-
-    def float(field: Field): Float = single(field)
-    def get_float(field: Field): Option[Float] = option(field)
-    def list_float(field: Field): List[Float] = list(field)
-
-    def double(field: Field): Double = single(field)
-    def get_double(field: Field): Option[Double] = option(field)
-    def list_double(field: Field): List[Double] = list(field)
-
-    def string(field: Field): String = single(field)
-    def get_string(field: Field): Option[String] = option(field)
-    def list_string(field: Field): List[String] = list(field)
+    def list_bool(field: Field): List[Boolean] = list(field, bool_value)
+    def list_int(field: Field): List[Int] = list(field, int_value)
+    def list_long(field: Field): List[Long] = list(field, long_value)
+    def list_double(field: Field): List[Double] = list(field, double_value)
+    def list_string(field: Field): List[String] = list(field, string_value)
+    def list_bytes(field: Field): List[Bytes] = list(field, bytes_value)
+    def list_date(field: Field): List[Date] = list(field, date_value)
   }
 
   class Results private[Solr](
