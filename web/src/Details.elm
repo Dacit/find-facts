@@ -53,6 +53,7 @@ view (Model model) =
     Error msg -> text msg
     Loaded block ->
       let
+        theory = block.chapter ++ "/" ++ block.theory
         start_before =
           block.start_line - count_lines (block.src_before ++ block.html) + count_lines block.html
         around s = "<span style=\"color: gray\">" ++ (Utils.escape_html s) ++ "</span>"
@@ -66,7 +67,7 @@ view (Model model) =
                 [text (name ++ ": " ++ String.fromInt (List.length elems))]
       in div [] [
         h2 [Typography.headline4] [text "Details"],
-        h3 [Typography.headline6] [text "Theory ", a [href block.url] [text block.theory]],
+        h3 [Typography.headline6] [text "Theory ", a [href block.url] [text theory]],
         Utils.view_code code start_before,
         viewIf (block.consts ++ block.typs ++ block.thms /= []) (h3 [Typography.subtitle1] [
           view_counts "Constants" block.consts,

@@ -41,6 +41,7 @@ max_facet_terms = 5
 
 {- fields -}
 
+chapterN = "chapter"
 sessionN = "session"
 theoryN = "theory"
 commandN = "command"
@@ -52,7 +53,7 @@ thmsN = "thms"
 kindsN = "kinds"
 
 search_fields = [sessionN, theoryN, commandN, sourceN, nameN, constsN, typsN, thmsN]
-facet_fields = [sessionN, theoryN, commandN, constsN, typsN, thmsN, kindsN]
+facet_fields = [chapterN, sessionN, theoryN, commandN, constsN, typsN, thmsN, kindsN]
 
 
 {- search components -}
@@ -181,9 +182,9 @@ set_result res (Model model) = Model {model | facets = Just res.facets}
 
 view_field: String -> String
 view_field field =
-  Dict.fromList [(sessionN, "Session"), (theoryN, "Theory"), (commandN, "Command"),
-    (sourceN, "Source"), (nameN, "Name"), (constsN, "Constant"), (typsN, "Type"),
-    (thmsN, "Theorem"), (kindsN, "Kind")]
+  Dict.fromList [(chapterN, "Chapter"), (sessionN, "Session"), (theoryN, "Theory"),
+    (commandN, "Command"), (sourceN, "Source"), (nameN, "Name"), (constsN, "Constant"),
+    (typsN, "Type"), (thmsN, "Theorem"), (kindsN, "Kind")]
   |> Dict.get field
   |> Maybe.withDefault field
 

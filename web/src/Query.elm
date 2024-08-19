@@ -79,6 +79,7 @@ encode_query_block id = Encode.object [("id", Encode.string id)]
 
 type alias Block = {
   id: String,
+  chapter: String,
   session: String,
   theory: String,
   url: String,
@@ -102,6 +103,7 @@ decode_block: Decode.Decoder Block
 decode_block =
   Decode.succeed Block
   |> Decode.andMap (Decode.field "id" Decode.string)
+  |> Decode.andMap (Decode.field "chapter" Decode.string)
   |> Decode.andMap (Decode.field "session" Decode.string)
   |> Decode.andMap (Decode.field "theory" Decode.string)
   |> Decode.andMap (Decode.field "url" Decode.string)

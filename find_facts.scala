@@ -23,6 +23,7 @@ object Find_Facts {
   case class Block(
     id: String,
     version: Long,
+    chapter: String,
     session: String,
     theory: String,
     file: Path,
@@ -56,7 +57,7 @@ object Find_Facts {
   }
 
   enum Field {
-    case session, theory, command, source, names, consts, typs, thms, kinds
+    case chapter, session, theory, command, source, names, consts, typs, thms, kinds
   }
 
   sealed trait Filter
@@ -89,6 +90,7 @@ object Find_Facts {
     thms: Long)
 
   case class Facets(
+    chapter: Map[String, Long],
     session: Map[String, Long],
     theory: Map[String, Long],
     command: Map[String, Long],
@@ -184,6 +186,7 @@ object Find_Facts {
     object Fields {
       val id = Solr.Field("id", Solr.Type.string).make_unique_key
       val version = Solr.Field("version", Solr.Type.long, Solr.Column_Wise(true))
+      val chapter = Solr.Field("chapter", Solr.Type.string, Solr.Column_Wise(true))
       val session = Solr.Field("session", Types.name)
       val session_facet = Solr.Field("session_facet", Solr.Type.string, Solr.Stored(false))
       val theory = Solr.Field("theory", Types.name)
@@ -213,7 +216,7 @@ object Find_Facts {
     }
 
     lazy val fields: Solr.Fields = Solr.Fields(
-      Fields.id, Fields.version, Fields.session, Fields.session_facet, Fields.theory, 
+      Fields.id, Fields.version, Fields.chapter, Fields.session, Fields.session_facet, Fields.theory, 
       Fields.theory_facet, Fields.file, Fields.url_path, Fields.command, Fields.start_line,
       Fields.src_before, Fields.src_after, Fields.src, Fields.markup, Fields.html, Fields.consts,
       Fields.consts_facet, Fields.typs, Fields.typs_facet, Fields.thms, Fields.thms_facet,
@@ -231,6 +234,7 @@ object Find_Facts {
     def read_block(res: Solr.Result): Block = {
       val id = res.string(Fields.id)
       val version = res.long(Fields.version)
+      val chapter = res.string(Fields.chapter)
       val session = res.string(Fields.session)
       val theory = res.string(Fields.theory)
       val file = Path.explode(res.string(Fields.file))
@@ -246,10 +250,10 @@ object Find_Facts {
       val typs = res.list_string(Fields.typs)
       val thms = res.list_string(Fields.thms)
 
-      Block(id = id, version = version, session = session, theory = theory, file = file, url_path =
-        url_path, command = command, start_line = start_line, src_before = src_before, src = src,
-        src_after = src_after, markup = markup, html = html, consts = consts, typs = typs, thms =
-          thms)
+      Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
+        file = file, url_path = url_path, command = command, start_line = start_line, src_before =
+        src_before, src = src, src_after = src_after, markup = markup, html = html, consts = consts,
+        typs = typs, thms = thms)
     }
 
     def read_blocks(
@@ -288,6 +292,7 @@ object Find_Facts {
           for (block <- blocks) yield { (doc: Solr.Document) =>
             doc.string(Fields.id) = block.id
             doc.long(Fields.version) = block.version
+            doc.string(Fields.chapter) = block.chapter
             doc.string(Fields.session) = block.session
             doc.string(Fields.session_facet) = block.session
             doc.string(Fields.theory) = block.theory
@@ -346,10 +351,11 @@ object Find_Facts {
 
     def query_facets(db: Solr.Database, query: Solr.Query): Facets =
       db.execute_facet_query(
-        List(Fields.session_facet, Fields.theory_facet, Fields.command, Fields.kinds,
+        List(Fields.chapter, Fields.session_facet, Fields.theory_facet, Fields.command, Fields.kinds,
           Fields.consts_facet, Fields.typs_facet, Fields.thms_facet),
         query,
         { res =>
+          val chapter = res.string(Fields.chapter)
           val sessions = res.string(Fields.session_facet)
           val theories = res.string(Fields.theory_facet)
           val commands = res.string(Fields.command)
@@ -358,7 +364,7 @@ object Find_Facts {
           val typs = res.string(Fields.typs_facet)
           val thms = res.string(Fields.thms_facet)
 
-          Facets(sessions, theories, commands, kinds, consts, typs, thms)
+          Facets(chapter, sessions, theories, commands, kinds, consts, typs, thms)
         })
 
 
@@ -366,6 +372,7 @@ object Find_Facts {
 
     def solr_field(field: Field): Solr.Field =
       field match {
+        case Field.chapter => Fields.chapter
         case Field.session => Fields.session
         case Field.theory => Fields.theory
         case Field.command => Fields.command
@@ -437,7 +444,8 @@ object Find_Facts {
     name: Document.Node.Name,
     browser_info_context: Browser_Info.Context,
     document_info: Document_Info,
-    theory_context: Export.Theory_Context
+    theory_context: Export.Theory_Context,
+    chapter: String
   ): List[Block] = {
     def sanitize_body(body: XML.Body): XML.Body = {
       def trim(source: XML.Body): XML.Body = source match {
@@ -500,6 +508,7 @@ object Find_Facts {
 
     def read_block(range: Text.Range, command: String): Block = {
       val line_range = document.range(range)
+      val start_line = line_range.start.line
 
       val id = theory + "#" + range.start + ".." + range.stop
 
@@ -526,8 +535,8 @@ object Find_Facts {
       val consts = get_entities(Export_Theory.Kind.CONST)
       val thms = get_entities(Export_Theory.Kind.THM)
 
-      Block(id = id, version = version, session = session, theory = theory, file = name.path,
-        url_path = url_path, command = command, start_line = line_range.start.line,
+      Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
+        file = name.path, url_path = url_path, command = command, start_line = start_line, 
         src_before = src_before, src = src, src_after = src_after, markup = markup, html = html,
         consts = consts, typs = typs, thms = thms)
     }
@@ -571,13 +580,15 @@ object Find_Facts {
             val document_info = Document_Info.read(database_context, deps, sessions)
             sessions.foreach(session =>
               using(database_context.open_session0(session)) { session_context =>
-                progress.echo("Session " + session + " ...")
+                val info = session_structure(session)
+                progress.echo("Session " + info.chapter + "/" + session + " ...")
+
                 Find_Facts.private_data.delete_session(db, session)
                 deps(session).proper_session_theories.foreach { name =>
                   progress.echo("Theory " + name.theory + " ...")
                   val theory_context = session_context.theory(name.theory)
-                  val blocks =
-                    read_blocks(name, browser_info_context, document_info, theory_context)
+                  val blocks = read_blocks(name, browser_info_context, document_info,
+                    theory_context, info.chapter)
                   Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
                 }
               })
@@ -676,6 +687,7 @@ object Find_Facts {
     def block(block: Block): JSON.T =
       JSON.Object(
         "id" -> block.id,
+        "chapter" -> block.chapter,
         "session" -> block.session,
         "theory" -> block.theory,
         "url" -> url_base.resolve(block.url_path.implode).toString,
@@ -696,6 +708,7 @@ object Find_Facts {
 
     def facets(facet: Facets): JSON.T =
       JSON.Object(
+        "chapter" -> facet.chapter,
         "session" -> facet.session,
         "theory" -> facet.theory,
         "command" -> facet.command,
