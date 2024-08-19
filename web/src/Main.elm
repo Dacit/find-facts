@@ -5,6 +5,7 @@ Find Facts application.
 module Main exposing (init, main, subscriptions, update, view)
 
 
+import About
 import Delay exposing (Delay)
 import Details
 import Html.Attributes exposing (href, style)
@@ -276,8 +277,8 @@ view model =
       a (attrs ++ [href ("#" ++ page), style "margin" "0 16px", Theme.onPrimary])
         [text name]
     (title, content) = case model.page of
-      Not_Found -> ("404 Not Found", [text "404 Not Found"])
-      About -> ("Find Facts | About", [text "Search engine for Isabelle"])
+      Not_Found -> ("404 Not Found", [h2 [Typography.headline4] [text "404 Not Found"]])
+      About -> ("Find Facts | About", [About.view |> Html.map never])
       Detail details -> ("Find Facts | Details", [Details.view details |> Html.map never])
       Search searcher _ results -> ("Find Facts | Search", [
         searcher |> Lazy.lazy Searcher.view |> Html.map Searcher_Msg,
