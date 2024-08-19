@@ -1,4 +1,7 @@
 section "Find Facts"
 
-option isabelle_presentation_url : string = "https://isabelle.in.tum.de/dist/library/"
+option browser_info_url_library : string = "https://isabelle.in.tum.de/dist/library/"
   -- "base url for Isabelle HTML presentation"
+
+option browser_info_url_afp : string = "https://www.isa-afp.org/browser_info/current/"
+  -- "base url for AFP HTML presentation"

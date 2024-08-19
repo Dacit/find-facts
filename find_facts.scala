@@ -683,14 +683,22 @@ object Find_Facts {
 
   case class Result(blocks: Blocks, facets: Facets)
 
-  class Encode(url_base: Url) {
+  class Encode(options: Options) {
+    val library_base_url = Url(options.string("browser_info_url_library"))
+    val afp_base_url = Url(options.string("browser_info_url_afp"))
+
+    def url(block: Block): Url = {
+      val base_url = if (block.chapter == AFP.chapter) afp_base_url else library_base_url
+      base_url.resolve(block.url_path.implode)
+    }
+
     def block(block: Block): JSON.T =
       JSON.Object(
         "id" -> block.id,
         "chapter" -> block.chapter,
         "session" -> block.session,
         "theory" -> block.theory,
-        "url" -> url_base.resolve(block.url_path.implode).toString,
+        "url" -> url(block).toString,
         "command" -> block.command,
         "start_line" -> block.start_line,
         "src_before" -> block.src_before,
@@ -762,8 +770,7 @@ object Find_Facts {
     devel: Boolean = false,
     progress: Progress = new Progress
   ): Unit = {
-    val presentation_base = Url(options.string("isabelle_presentation_url"))
-    val encode = new Encode(presentation_base)
+    val encode = new Encode(options)
     val logo = Bytes.read(Path.explode("$FIND_FACTS_HOME/web/favicon.ico"))
 
     val isabelle_style = HTML.fonts_css("/fonts/" + _) + "\n\n" + File.read(HTML.isabelle_css)
