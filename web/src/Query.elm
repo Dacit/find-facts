@@ -2,7 +2,9 @@
 
 Queries against the find facts server.
 -}
-module Query exposing (..)
+module Query exposing (Atom(..), Filter(..), Select, Query, Query_Blocks, empty, empty_query,
+  encode_query, encode_query_blocks, encode_query_block, Block, Blocks, Facets, Result,
+  decode_block, decode_blocks, decode_result)
 
 
 import Dict exposing (Dict)
@@ -34,8 +36,12 @@ empty_filter filter =
     Any_Filter atoms -> List.all empty_atom atoms
     Field_Filter _ atoms -> List.all empty_atom atoms
 
+empty_select: Select -> Bool
+empty_select select = List.isEmpty select.values
+
 empty_query: Query -> Bool
-empty_query query = (query.filters ++ query.exclude) |> List.all empty_filter
+empty_query query =
+  List.all empty_filter (query.filters ++ query.exclude) && List.all empty_select query.selects
 
 
 {- json encoding -}
