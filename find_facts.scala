@@ -515,7 +515,7 @@ object Find_Facts {
 
     def read_block(range: Text.Range, command: String): Block = {
       val line_range = document.range(range)
-      val start_line = line_range.start.line
+      val start_line = line_range.start.line1
 
       val id = theory + "#" + range.start + ".." + range.stop
 
