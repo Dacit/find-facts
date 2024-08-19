@@ -51,9 +51,8 @@ object Find_Facts {
   /** queries */
 
   enum Atom {
+    case Exact(s: String) extends Atom
     case Value(s: String) extends Atom
-    case Phrase(s: String) extends Atom
-    case Wildcard(s: String) extends Atom
   }
 
   enum Field {
@@ -382,11 +381,11 @@ object Find_Facts {
       def solr_atom(atom: Atom): List[Solr.Source] =
         atom match {
           case Atom.Value(s) if s.isEmpty => Nil
-          case Atom.Value(s) => List(Solr.term(s))
-          case Atom.Wildcard(s) =>
+          case Atom.Value(s) if !s.exists(Solr.wildcard(_)) => List(Solr.term(s))
+          case Atom.Value(s) =>
             val terms = s.split("\\s+").toList.filterNot(_.isBlank)
             if (terms.isEmpty) Nil else terms.map(Solr.wildcard)
-          case Atom.Phrase(s) => List(Solr.phrase(s))
+          case Atom.Exact(s) => List(Solr.phrase(s))
         }
 
       def solr_atoms(field: Field, atoms: List[Atom]): List[Solr.Source] =
@@ -583,7 +582,7 @@ object Find_Facts {
               })
           }
 
-          val query = Query(Field_Filter(Field.session, sessions.map(Atom.Phrase(_))))
+          val query = Query(Field_Filter(Field.session, sessions.map(Atom.Exact(_))))
           Find_Facts.query_stats(db, query)
         }
 
@@ -630,8 +629,7 @@ object Find_Facts {
   object Parse {
     def atom(json: JSON.T): Option[Atom] =
       JSON.string(json, "value").map(Atom.Value(_)) orElse
-        JSON.string(json, "phrase").map(Atom.Phrase(_)) orElse
-        JSON.string(json, "wildcard").map(Atom.Wildcard(_))
+        JSON.string(json, "exact").map(Atom.Exact(_))
 
     def field(name: String): Option[Field] = Field.values.find(_.toString == name)
 

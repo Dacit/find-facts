@@ -271,9 +271,8 @@ view (Model model) =
 explode_query: String -> Query.Atom
 explode_query s =
  case try_unquote s of
-   Just s1 -> Query.Phrase s1
-   Nothing ->
-    (if String.contains "*" s || String.contains "?" s then Query.Wildcard else Query.Value) s
+   Just s1 -> Query.Exact s1
+   Nothing -> Query.Value s
 
 atoms_query: String -> List Query.Atom
 atoms_query s = explode_query s |> List.singleton

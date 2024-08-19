@@ -13,7 +13,7 @@ import Json.Encode as Encode
 
 {- queries -}
 
-type Atom = Value String | Phrase String | Wildcard String
+type Atom = Value String | Exact String
 type Filter = Any_Filter (List Atom) | Field_Filter String (List Atom)
 type alias Select = {field: String, values: List String}
 type alias Query = {filters: List Filter, exclude: List Filter, selects: List Select}
@@ -26,8 +26,7 @@ empty_atom: Atom -> Bool
 empty_atom atom =
   case atom of
     Value s -> String.words s |> List.isEmpty
-    Phrase s -> String.words s |> List.isEmpty
-    Wildcard s -> String.words s |> List.isEmpty
+    Exact s -> String.words s |> List.isEmpty
 
 empty_filter: Filter -> Bool
 empty_filter filter =
@@ -44,9 +43,8 @@ empty_query query = (query.filters ++ query.exclude) |> List.all empty_filter
 encode_atom: Atom -> Encode.Value
 encode_atom atom =
   case atom of
-    Value value -> Encode.object [("value", Encode.string value)]
-    Phrase phrase -> Encode.object [("phrase", Encode.string phrase)]
-    Wildcard wildcard -> Encode.object [("wildcard", Encode.string wildcard)]
+    Exact phrase -> Encode.object [("exact", Encode.string phrase)]
+    Value wildcard -> Encode.object [("value", Encode.string wildcard)]
 
 encode_filter: Filter -> Encode.Value
 encode_filter filter =
