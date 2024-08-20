@@ -46,13 +46,13 @@ sessionN = "session"
 theoryN = "theory"
 commandN = "command"
 sourceN = "source"
-nameN = "name"
+namesN = "names"
 constsN = "consts"
 typsN = "typs"
 thmsN = "thms"
 kindsN = "kinds"
 
-search_fields = [sessionN, theoryN, commandN, sourceN, nameN, constsN, typsN, thmsN]
+search_fields = [sessionN, theoryN, commandN, sourceN, namesN, constsN, typsN, thmsN]
 facet_fields = [chapterN, sessionN, theoryN, commandN, constsN, typsN, thmsN, kindsN]
 
 
@@ -183,7 +183,7 @@ set_result res (Model model) = Model {model | facets = Just res.facets}
 view_field: String -> String
 view_field field =
   Dict.fromList [(chapterN, "Chapter"), (sessionN, "Session"), (theoryN, "Theory"),
-    (commandN, "Command"), (sourceN, "Source"), (nameN, "Name"), (constsN, "Constant"),
+    (commandN, "Command"), (sourceN, "Source"), (namesN, "Name"), (constsN, "Constant"),
     (typsN, "Type"), (thmsN, "Theorem"), (kindsN, "Kind")]
   |> Dict.get field
   |> Maybe.withDefault field
