@@ -182,9 +182,17 @@ set_result res (Model model) = Model {model | facets = Just res.facets}
 
 view_field: String -> String
 view_field field =
-  Dict.fromList [(chapterN, "Chapter"), (sessionN, "Session"), (theoryN, "Theory"),
-    (commandN, "Command"), (sourceN, "Source"), (namesN, "Name"), (constsN, "Constant"),
-    (typsN, "Type"), (thmsN, "Theorem"), (kindsN, "Kind")]
+  Dict.fromList [
+    (chapterN, "Chapter"),
+    (sessionN, "Session"),
+    (theoryN, "Theory"),
+    (commandN, "Command"),
+    (sourceN, "Source Code"),
+    (namesN, "Name"),
+    (constsN, "Constant Name"),
+    (typsN, "Type Name"),
+    (thmsN, "Theorem Name"),
+    (kindsN, "Kind")]
   |> Dict.get field
   |> Maybe.withDefault field
 
@@ -202,7 +210,7 @@ view_filter (i, filter) =
          |> TextField.setValue (Just filter.value)
          |> TextField.setOnInput (Filter_Input i)
          |> TextField.setAttributes [style "width" "100%"]
-         |> TextField.setLabel (Just filter.field))],
+         |> TextField.setLabel (Just (view_field filter.field)))],
     LayoutGrid.cell [LayoutGrid.span1, LayoutGrid.alignLeft] [
       IconButton.iconButton
         (IconButton.config |> IconButton.setOnClick (Remove_Filter i))
@@ -224,7 +232,7 @@ view_facet field t ts counts selected =
 
 view_add_filter : Html Msg
 view_add_filter =
-  let option field = SelectItem.selectItem (SelectItem.config {value=field}) field
+  let option field = SelectItem.selectItem (SelectItem.config {value=field}) (view_field field)
   in case search_fields of
     [] -> Html.nothing
     x :: xs ->
