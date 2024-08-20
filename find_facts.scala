@@ -33,7 +33,7 @@ object Find_Facts {
     src_before: String,
     src: String,
     src_after: String,
-    markup: XML.Body,
+    xml: XML.Body,
     html: String,
     consts: List[String],
     typs: List[String],
@@ -198,7 +198,7 @@ object Find_Facts {
       val src_before = Solr.Field("src_before", Solr.Type.string, Solr.Indexed(false))
       val src_after = Solr.Field("src_after", Solr.Type.string, Solr.Indexed(false))
       val src = Solr.Field("src", Types.source)
-      val markup = Solr.Field("markup", Solr.Type.bytes, Solr.Indexed(false))
+      val xml = Solr.Field("xml", Solr.Type.bytes, Solr.Indexed(false))
       val html = Solr.Field("html", Solr.Type.bytes, Solr.Indexed(false))
       val consts = Solr.Field("consts", Types.name, Solr.Multi_Valued(true))
       val consts_facet =
@@ -218,7 +218,7 @@ object Find_Facts {
     lazy val fields: Solr.Fields = Solr.Fields(
       Fields.id, Fields.version, Fields.chapter, Fields.session, Fields.session_facet, Fields.theory,
       Fields.theory_facet, Fields.file, Fields.url_path, Fields.command, Fields.start_line,
-      Fields.src_before, Fields.src_after, Fields.src, Fields.markup, Fields.html, Fields.consts,
+      Fields.src_before, Fields.src_after, Fields.src, Fields.xml, Fields.html, Fields.consts,
       Fields.consts_facet, Fields.typs, Fields.typs_facet, Fields.thms, Fields.thms_facet,
       Fields.names, Fields.kinds)
 
@@ -244,7 +244,7 @@ object Find_Facts {
       val src_before = res.string(Fields.src_before)
       val src = res.string(Fields.src)
       val src_after = res.string(Fields.src_after)
-      val markup = YXML.parse_body(res.bytes(Fields.markup))
+      val xml = YXML.parse_body(res.bytes(Fields.xml))
       val html = res.bytes(Fields.html).text
       val consts = res.list_string(Fields.consts)
       val typs = res.list_string(Fields.typs)
@@ -252,7 +252,7 @@ object Find_Facts {
 
       Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
         file = file, url_path = url_path, command = command, start_line = start_line, src_before =
-        src_before, src = src, src_after = src_after, markup = markup, html = html, consts = consts,
+        src_before, src = src, src_after = src_after, xml = xml, html = html, consts = consts,
         typs = typs, thms = thms)
     }
 
@@ -304,7 +304,7 @@ object Find_Facts {
             doc.string(Fields.src_before) = block.src_before
             doc.string(Fields.src) = block.src
             doc.string(Fields.src_after) = block.src_after
-            doc.bytes(Fields.markup) = YXML.bytes_of_body(block.markup)
+            doc.bytes(Fields.xml) = YXML.bytes_of_body(block.xml)
             doc.bytes(Fields.html) = Bytes(block.html)
             doc.string(Fields.consts) = block.consts
             doc.string(Fields.consts_facet) = block.consts
@@ -511,9 +511,9 @@ object Find_Facts {
       val src_after =
         get_source(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines)))
 
-      val markup = snapshot.xml_markup(range, elements = elements.html)
+      val xml = snapshot.xml_markup(range, elements = elements.html)
       val html =
-        HTML.output(node_context.make_html(elements, markup), hidden = true, structural = false)
+        HTML.output(node_context.make_html(elements, xml), hidden = true, structural = false)
 
       val maybe_entities = entities.range(range.start, range.stop).values.toList.flatten.distinct
       def get_entities(kind: String): List[String] =
@@ -529,7 +529,7 @@ object Find_Facts {
 
       Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
         file = name.path, url_path = url_path, command = command, start_line = start_line,
-        src_before = src_before, src = src, src_after = src_after, markup = markup, html = html,
+        src_before = src_before, src = src, src_after = src_after, xml = xml, html = html,
         consts = consts, typs = typs, thms = thms)
     }
 
