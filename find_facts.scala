@@ -454,22 +454,6 @@ object Find_Facts {
     theory_context: Export.Theory_Context,
     chapter: String
   ): List[Block] = {
-    def sanitize_body(body: XML.Body): XML.Body = {
-      def trim(source: XML.Body): XML.Body = source match {
-        case XML.Elem(markup, body) :: xs => XML.Elem(markup, trim(body)) :: xs
-        case XML.Text(content) :: xs => XML.Text(content.stripTrailing()) :: xs
-        case Nil => Nil
-      }
-      def filter(body: XML.Body): XML.Body =
-        body.flatMap {
-          case XML.Elem(Markup.Entity(_, _), body) => filter(body)
-          case XML.Elem(markup, body) => List(XML.Elem(markup, filter(body)))
-          case e => List(e)
-        }
-
-      filter(trim(body.reverse).reverse)
-    }
-
     def expand_block(block: Thy_Blocks.Block): List[Thy_Blocks.Block] =
       block match {
         case Thy_Blocks.Thy(inner) => inner.flatMap(expand_block)
@@ -479,7 +463,7 @@ object Find_Facts {
         case _ => List(block)
       }
 
-    val elements = Browser_Info.default_elements.copy(entity = Markup.Elements.empty)
+    val elements = Browser_Info.Elements(html = Browser_Info.default_elements.html - Markup.ENTITY)
     val node_context = Browser_Info.Node_Context.empty
 
     val theory = theory_context.theory
@@ -511,7 +495,6 @@ object Find_Facts {
 
     val theory_info =
       document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
-    val thy_elements = theory_info.elements(browser_info_context.elements)
 
     val url_path =
       browser_info_context.theory_dir(theory_info) + browser_info_context.theory_html(theory_info)
@@ -528,10 +511,9 @@ object Find_Facts {
       val src_after =
         get_source(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines)))
 
-      val body = snapshot.xml_markup(range, elements = thy_elements.html)
-      val markup = sanitize_body(body)
+      val markup = snapshot.xml_markup(range, elements = elements.html)
       val html =
-        HTML.output(node_context.make_html(elements, body), hidden = true, structural = false)
+        HTML.output(node_context.make_html(elements, markup), hidden = true, structural = false)
 
       val maybe_entities = entities.range(range.start, range.stop).values.toList.flatten.distinct
       def get_entities(kind: String): List[String] =
