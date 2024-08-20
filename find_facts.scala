@@ -508,8 +508,11 @@ object Find_Facts {
       TreeMap.from(thy_entities.groupBy(entity => index.decode(entity.range).start).toList)
 
     val session = theory_context.session_context.session_name
+
     val theory_info =
       document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
+    val thy_elements = theory_info.elements(browser_info_context.elements)
+
     val url_path =
       browser_info_context.theory_dir(theory_info) + browser_info_context.theory_html(theory_info)
 
@@ -525,7 +528,7 @@ object Find_Facts {
       val src_after =
         get_source(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines)))
 
-      val body = snapshot.xml_markup(range)
+      val body = snapshot.xml_markup(range, elements = thy_elements.html)
       val markup = sanitize_body(body)
       val html =
         HTML.output(node_context.make_html(elements, body), hidden = true, structural = false)
