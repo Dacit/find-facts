@@ -256,7 +256,10 @@ update msg model =
 {- subscriptions -}
 
 subscriptions: Model -> Sub Msg
-subscriptions _ = Sub.none
+subscriptions model =
+  case model.page of
+    Search searcher _ _ -> Searcher.subscriptions searcher |> Sub.map Searcher_Msg
+    _ -> Sub.none
 
 
 {- view -}

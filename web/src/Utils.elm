@@ -9,6 +9,7 @@ import Html exposing (..)
 import Html.Attributes exposing (class, style)
 import Html.Parser
 import Html.Parser.Util
+import Json.Decode as Decode
 import Maybe.Extra as Maybe
 import Parser exposing (Parser)
 import String.Extra as String
@@ -57,3 +58,13 @@ view_code src start =
       "<div style=\"width:5ch; color:gray; text-align:right; display:inline-block\">" ++ (String.fromInt (start + i)) ++ "</div>  " ++ line
     src1 = split_lines src |> List.indexedMap view_line |> String.join "\n"
   in Html.pre [class "source"] [view_html src1]
+
+
+outside_elem: String -> Decode.Decoder Bool
+outside_elem name =
+  let decode_name name1 = if name == name1 then Decode.succeed False else Decode.fail "continue"
+  in
+    Decode.oneOf [
+      Decode.field "name" Decode.string |> Decode.andThen decode_name,
+      Decode.lazy (\_ -> outside_elem name |> Decode.field "parentNode"),
+      Decode.succeed True]
