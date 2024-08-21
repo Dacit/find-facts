@@ -447,13 +447,93 @@ object Find_Facts {
 
   /** indexing **/
 
-  def read_blocks(
+  def make_thy_blocks(
     name: Document.Node.Name,
     browser_info_context: Browser_Info.Context,
     document_info: Document_Info,
     theory_context: Export.Theory_Context,
     chapter: String
   ): List[Block] = {
+    val theory = theory_context.theory
+    val snapshot =
+      Build.read_theory(theory_context).getOrElse(error("Missing snapshot for " + theory))
+
+    val entities = Export_Theory.read_theory(theory_context).entity_iterator.toList
+    val session = theory_context.session_context.session_name
+
+    val theory_info =
+      document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
+    val thy_dir = browser_info_context.theory_dir(theory_info)
+
+    def make_node_blocks(
+      name: Document.Node.Name,
+      snapshot: Document.Snapshot,
+      command_ranges: List[(String, Text.Range)]
+    ): List[Block] = {
+      val version = snapshot.version.id
+      val url_path = thy_dir + browser_info_context.smart_html(theory_info, name.node)
+
+      val elements =
+        Browser_Info.Elements(html = Browser_Info.default_elements.html - Markup.ENTITY)
+      val node_context = Browser_Info.Node_Context.empty
+
+      val content = XML.content(snapshot.xml_markup(elements = Markup.Elements.empty))
+      val document = Line.Document(content)
+      val num_lines = document.lines.length
+
+      val index = Symbol.Index(content)
+      val node_entities =
+        TreeMap.from(entities
+          .filter(entity => Path.explode(entity.file).canonical == name.path.canonical)
+          .groupBy(entity => index.decode(entity.range).start))
+
+      def get_source(start: Line.Position, stop: Line.Position): String = {
+        val range = Text.Range(document.offset(start).get, document.offset(stop).get)
+        Symbol.decode(range.substring(document.text))
+      }
+
+      val comment = Markup.Elements(Markup.ML_COMMENT, Markup.COMMENT, Markup.COMMENT1,
+        Markup.COMMENT2, Markup.COMMENT3)
+      val comment_ranges =
+        for (info <- snapshot.select(Text.Range.full, comment, _ => _ => Some(())))
+        yield ("", info.range)
+
+      for ((command, range) <- command_ranges ::: comment_ranges) yield {
+        val line_range = document.range(range)
+        val start_line = line_range.start.line1
+
+        val id = theory + "#" + range.start + ".." + range.stop
+
+        val src_before =
+          get_source(Line.Position((line_range.start.line - 5).max(0)), line_range.start)
+        val src = Symbol.decode(document.get_text(range).get)
+        val src_after =
+          get_source(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines)))
+
+        val xml = snapshot.xml_markup(range, elements = elements.html)
+        val html =
+          HTML.output(node_context.make_html(elements, xml), hidden = true, structural = false)
+
+        val entities = node_entities.range(range.start, range.stop).values.toList.flatten.distinct
+
+        def get_entities(kind: String): List[String] =
+          for {
+            entity <- entities
+            if entity.export_kind == kind
+            if range.contains(index.decode(entity.range))
+          } yield entity.name
+
+        val typs = get_entities(Export_Theory.Kind.TYPE)
+        val consts = get_entities(Export_Theory.Kind.CONST)
+        val thms = get_entities(Export_Theory.Kind.THM)
+
+        Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
+          file = name.path, url_path = url_path, command = command, start_line = start_line,
+          src_before = src_before, src = src, src_after = src_after, xml = xml, html = html,
+          consts = consts, typs = typs, thms = thms)
+      }
+    }
+
     def expand_block(block: Thy_Blocks.Block): List[Thy_Blocks.Block] =
       block match {
         case Thy_Blocks.Thy(inner) => inner.flatMap(expand_block)
@@ -463,87 +543,11 @@ object Find_Facts {
         case _ => List(block)
       }
 
-    val elements = Browser_Info.Elements(html = Browser_Info.default_elements.html - Markup.ENTITY)
-    val node_context = Browser_Info.Node_Context.empty
-
-    val theory = theory_context.theory
-    val snapshot =
-      Build.read_theory(theory_context).getOrElse(error("Missing snapshot for " + theory))
-    val version = snapshot.version.id
-    val content = XML.content(snapshot.xml_markup())
-
-    val index = Symbol.Index(content)
-    val document = Line.Document(content)
-
-    def get_source(start: Line.Position, stop: Line.Position): String = {
-      val range = Text.Range(document.offset(start).get, document.offset(stop).get)
-      Symbol.decode(range.substring(document.text))
-    }
-
-    val num_lines = document.lines.length
-
-    val thy_entities =
-      for {
-        entity <- Export_Theory.read_theory(theory_context).entity_iterator.toList
-        if Path.explode(entity.file).canonical == name.path.canonical
-      } yield entity
-
-    val entities =
-      TreeMap.from(thy_entities.groupBy(entity => index.decode(entity.range).start).toList)
-
-    val session = theory_context.session_context.session_name
-
-    val theory_info =
-      document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
-
-    val url_path =
-      browser_info_context.theory_dir(theory_info) + browser_info_context.theory_html(theory_info)
-
-    def read_block(range: Text.Range, command: String): Block = {
-      val line_range = document.range(range)
-      val start_line = line_range.start.line1
-
-      val id = theory + "#" + range.start + ".." + range.stop
-
-      val src_before =
-        get_source(Line.Position((line_range.start.line - 5).max(0)), line_range.start)
-      val src = Symbol.decode(document.get_text(range).get)
-      val src_after =
-        get_source(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines)))
-
-      val xml = snapshot.xml_markup(range, elements = elements.html)
-      val html =
-        HTML.output(node_context.make_html(elements, xml), hidden = true, structural = false)
-
-      val maybe_entities = entities.range(range.start, range.stop).values.toList.flatten.distinct
-      def get_entities(kind: String): List[String] =
-        for {
-          entity <- maybe_entities
-          if entity.export_kind == kind
-          if range.contains(index.decode(entity.range))
-        } yield entity.name
-
-      val typs = get_entities(Export_Theory.Kind.TYPE)
-      val consts = get_entities(Export_Theory.Kind.CONST)
-      val thms = get_entities(Export_Theory.Kind.THM)
-
-      Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
-        file = name.path, url_path = url_path, command = command, start_line = start_line,
-        src_before = src_before, src = src, src_after = src_after, xml = xml, html = html,
-        consts = consts, typs = typs, thms = thms)
-    }
-
-    val thy_blocks =
+    val thy_command_ranges =
       for (block <- Thy_Blocks.read_blocks(snapshot).flatMap(expand_block))
-      yield read_block(block.range, block.command)
+      yield (block.command, block.range)
 
-    val comment =
-      Markup.Elements(Markup.COMMENT, Markup.COMMENT1, Markup.COMMENT2, Markup.COMMENT3)
-    val comments =
-      for (info <- snapshot.select(Text.Range.full, comment, _ => _ => Some(())))
-      yield read_block(info.range, "")
-
-    thy_blocks ::: comments
+    make_node_blocks(name, snapshot, thy_command_ranges)
   }
 
   def index_blocks(
@@ -579,7 +583,7 @@ object Find_Facts {
                 deps(session).proper_session_theories.foreach { name =>
                   progress.echo("Theory " + name.theory + " ...")
                   val theory_context = session_context.theory(name.theory)
-                  val blocks = read_blocks(name, browser_info_context, document_info,
+                  val blocks = make_thy_blocks(name, browser_info_context, document_info,
                     theory_context, info.chapter)
                   Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
                 }
