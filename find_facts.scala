@@ -502,7 +502,7 @@ object Find_Facts {
         val line_range = document.range(range)
         val start_line = line_range.start.line1
 
-        val id = theory + "#" + range.start + ".." + range.stop
+        val id = url_path.implode + "#" + range.start + ".." + range.stop
 
         val src_before =
           get_source(Line.Position((line_range.start.line - 5).max(0)), line_range.start)
@@ -547,7 +547,13 @@ object Find_Facts {
       for (block <- Thy_Blocks.read_blocks(snapshot).flatMap(expand_block))
       yield (block.command, block.range)
 
-    make_node_blocks(name, snapshot, thy_command_ranges)
+    make_node_blocks(name, snapshot, thy_command_ranges) :::
+      (for {
+        blob_name <- snapshot.node_files.tail
+        snapshot1 = snapshot.switch(blob_name)
+        range = Text.Range.length(snapshot1.node.source)
+        block <- make_node_blocks(blob_name, snapshot1, List(("", range)))
+      } yield block)
   }
 
   def index_blocks(
