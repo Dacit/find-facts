@@ -2,7 +2,7 @@
 
 Find Facts details view.
 -}
-module Details exposing (Model, init, get_id, params, parser, set_loaded, view)
+module Details exposing (Model, init, get_id, set_loaded, view)
 
 
 import Html exposing (..)
@@ -12,10 +12,8 @@ import Http
 import Library exposing (..)
 import Material.Theme as Theme
 import Material.Typography as Typography
-import Parser exposing (Parser)
 import Query exposing (Block)
-import Url.Builder as Builder exposing (QueryParameter)
-import Utils exposing (Query_Param, parse_key)
+import Utils exposing (Query_Param)
 
 
 {- model -}
@@ -27,12 +25,6 @@ init id = Model {id = id, state = Loading}
 
 get_id: Model -> String
 get_id (Model model) = model.id
-
-params: Model -> List QueryParameter
-params (Model model) = [Builder.string "id" model.id]
-
-parser: Parser Query_Param Model
-parser = Parser.map (Tuple.second >> init) (parse_key ((==) "id"))
 
 
 {- updates -}

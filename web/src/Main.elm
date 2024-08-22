@@ -84,7 +84,6 @@ init _ url key =
 {- url encoding/decoding -}
 
 aboutN = "about"
-detailsN = "details"
 searchN = "search"
 
 url_encode: Url -> Page -> Url
@@ -93,7 +92,7 @@ url_encode url page =
     Not_Found -> {url | fragment = Nothing}
     About -> {url | fragment = Just aboutN}
     Detail details ->
-      {url | fragment = Just (detailsN ++ Url.Builder.toQuery (Details.params details))}
+      {url | fragment = Just (Details.get_id details)}
     Search searcher _ _ ->
       let params = Searcher.params searcher
       in {url | fragment = Just (searchN ++ (Url.Builder.toQuery params))}
@@ -110,8 +109,8 @@ fragment_decode make_page fragment =
           |> Maybe.withDefault Not_Found
       in
         if page == aboutN && List.isEmpty qs then About
-        else if page == detailsN then parse Details.parser Detail
         else if page == searchN then parse Searcher.parser make_page
+        else if List.isEmpty qs then Detail (Details.init page)
         else Not_Found
 
 url_decode: Url -> Page -> Page

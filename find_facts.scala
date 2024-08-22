@@ -511,7 +511,7 @@ object Find_Facts {
         val line_range = document.range(range)
         val start_line = line_range.start.line1
 
-        val id = file + "#" + range.start + ".." + range.stop
+        val id = file + "|" + range.start + ".." + range.stop
 
         val src_before =
           get_source(Line.Position((line_range.start.line - 5).max(0)), line_range.start)
