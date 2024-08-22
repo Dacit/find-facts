@@ -53,15 +53,7 @@ view_html html =
 view_code: String -> Int -> Html msg
 view_code src start =
   let
-    lines = split_lines src
-    end = start + (List.length lines) - 1
-    numbers =
-      List.range start end |> List.map String.fromInt |> List.intersperse "\n" |> String.concat
-  in
-    div [style "display" "inline-flex"] [
-      Html.pre
-        [style "float" "left", style "text-align" "right", style "min-width" "5ch",
-          class "source", style "color" "gray"]
-        [text numbers],
-      Html.pre [style "float" "right", class "source"] [view_html src]
-    ]
+    view_line i line =
+      "<div style=\"width:5ch; color:gray; text-align:right; display:inline-block\">" ++ (String.fromInt (start + i)) ++ "</div>  " ++ line
+    src1 = split_lines src |> List.indexedMap view_line |> String.join "\n"
+  in Html.pre [class "source"] [view_html src1]

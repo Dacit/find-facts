@@ -35,6 +35,7 @@ object Find_Facts {
     src_after: String,
     xml: XML.Body,
     html: String,
+    entity_kname: Option[String],
     consts: List[String],
     typs: List[String],
     thms: List[String]
@@ -207,6 +208,7 @@ object Find_Facts {
       val src = Solr.Field("src", Types.source)
       val xml = Solr.Field("xml", Solr.Type.bytes, Solr.Indexed(false))
       val html = Solr.Field("html", Solr.Type.bytes, Solr.Indexed(false))
+      val entity_kname = Solr.Field("entity_kname", Solr.Type.string, Solr.Indexed(false))
       val consts = Solr.Field("consts", Types.name, Solr.Multi_Valued(true))
       val consts_facet =
         Solr.Field("consts_facet", Solr.Type.string, Solr.Multi_Valued(true) ::: Solr.Stored(false))
@@ -226,8 +228,8 @@ object Find_Facts {
       Fields.id, Fields.version, Fields.chapter, Fields.session, Fields.session_facet,
       Fields.theory, Fields.theory_facet, Fields.file, Fields.file_type, Fields.url_path,
       Fields.command, Fields.start_line, Fields.src_before, Fields.src_after, Fields.src,
-      Fields.xml, Fields.html, Fields.consts, Fields.consts_facet, Fields.typs, Fields.typs_facet,
-      Fields.thms, Fields.thms_facet, Fields.names, Fields.kinds)
+      Fields.xml, Fields.html, Fields.entity_kname, Fields.consts, Fields.consts_facet, Fields.typs,
+      Fields.typs_facet, Fields.thms, Fields.thms_facet, Fields.names, Fields.kinds)
 
 
     /* operations */
@@ -253,14 +255,15 @@ object Find_Facts {
       val src_after = res.string(Fields.src_after)
       val xml = YXML.parse_body(res.bytes(Fields.xml))
       val html = res.bytes(Fields.html).text
+      val entity_kname = res.get_string(Fields.entity_kname)
       val consts = res.list_string(Fields.consts)
       val typs = res.list_string(Fields.typs)
       val thms = res.list_string(Fields.thms)
 
       Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
         file = file, url_path = url_path, command = command, start_line = start_line, src_before =
-        src_before, src = src, src_after = src_after, xml = xml, html = html, consts = consts,
-        typs = typs, thms = thms)
+        src_before, src = src, src_after = src_after, xml = xml, html = html, entity_kname =
+        entity_kname, consts = consts, typs = typs, thms = thms)
     }
 
     def read_blocks(
@@ -314,6 +317,7 @@ object Find_Facts {
             doc.string(Fields.src_after) = block.src_after
             doc.bytes(Fields.xml) = YXML.bytes_of_body(block.xml)
             doc.bytes(Fields.html) = Bytes(block.html)
+            doc.string(Fields.entity_kname) = block.entity_kname
             doc.string(Fields.consts) = block.consts
             doc.string(Fields.consts_facet) = block.consts
             doc.string(Fields.typs) = block.typs
@@ -532,14 +536,16 @@ object Find_Facts {
             if range.contains(index.decode(entity.range))
           } yield entity.name
 
+        val entity_kname = entities.sortBy(_.name.length).headOption.map(_.kname)
+
         val typs = get_entities(Export_Theory.Kind.TYPE)
         val consts = get_entities(Export_Theory.Kind.CONST)
         val thms = get_entities(Export_Theory.Kind.THM)
 
         Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
           file = file, url_path = url_path, command = command, start_line = start_line, src_before =
-          src_before, src = src, src_after = src_after, xml = xml, html = html, consts = consts,
-          typs = typs, thms = thms)
+          src_before, src = src, src_after = src_after, xml = xml, html = html, entity_kname =
+          entity_kname, consts = consts, typs = typs, thms = thms)
       }
     }
 
@@ -717,9 +723,7 @@ object Find_Facts {
         "src_before" -> block.src_before,
         "src_after" -> block.src_after,
         "html" -> block.html,
-        "consts" -> block.consts,
-        "typs" -> block.typs,
-        "thms" -> block.thms)
+        "entity_kname" -> block.entity_kname.orNull)
 
     def blocks(blocks: Blocks): JSON.T =
       JSON.Object(

@@ -255,7 +255,8 @@ view (Model model) =
           model.facets |> Maybe.map (Dict.get field) |> Maybe.join |> Maybe.withDefault Dict.empty
         selected =
           model.search.facets |> Dict.get field |> Maybe.map .terms |> Maybe.withDefault Set.empty
-        counts1 = if Dict.size counts > max_facet_terms then Dict.empty else counts
+        counts1 =
+          if Dict.size counts > max_facet_terms || Dict.size counts < 2 then Dict.empty else counts
         terms = Dict.keys counts1 |> Set.fromList |> Set.union selected |> Set.toList |> List.sort
       in case terms of
         [] -> Nothing

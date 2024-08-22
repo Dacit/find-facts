@@ -50,19 +50,9 @@ view (Model model) =
           block.start_line - count_lines (block.src_before ++ block.html) + count_lines block.html
         around s = "<span style=\"color: gray\">" ++ (Utils.escape_html s) ++ "</span>"
         code = around block.src_before ++ block.html ++ around block.src_after
-        view_counts name elems =
-          if List.isEmpty elems then Html.nothing
-          else
-            span
-              [style "margin-right" "8px", style "padding" "4px 8px", style "border-radius" "16px",
-                Theme.secondaryBg, Theme.onSecondary]
-                [text (name ++ ": " ++ String.fromInt (List.length elems))]
+        url = block.url ++ maybe_proper block.entity_kname ((++) "#")
       in div [] [
         h2 [Typography.headline4] [text "Details"],
         h3 [Typography.headline6]
-          [text "In ", a [href block.url] [text theory], text (" (" ++ block.file ++ ")")],
-        Utils.view_code code start_before,
-        viewIf (block.consts ++ block.typs ++ block.thms /= []) (h3 [Typography.subtitle1] [
-          view_counts "Constants" block.consts,
-          view_counts "Types" block.typs,
-          view_counts "Theorems" block.thms])]
+          [text "In ", a [href url] [text theory], text (" (" ++ block.file ++ ")")],
+        Utils.view_code code start_before]

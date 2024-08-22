@@ -96,9 +96,7 @@ type alias Block = {
   src_before: String,
   src_after: String,
   html: String,
-  consts: List String,
-  typs: List String,
-  thms: List String}
+  entity_kname: Maybe String}
 
 type alias Blocks = {num_found: Int, blocks: List Block, cursor: String}
 type alias Facets = Dict String (Dict String Int)
@@ -122,9 +120,7 @@ decode_block =
   |> Decode.andMap (Decode.field "src_before" Decode.string)
   |> Decode.andMap (Decode.field "src_after" Decode.string)
   |> Decode.andMap (Decode.field "html" Decode.string)
-  |> Decode.andMap (Decode.field "consts" (Decode.list Decode.string))
-  |> Decode.andMap (Decode.field "typs" (Decode.list Decode.string))
-  |> Decode.andMap (Decode.field "thms" (Decode.list Decode.string))
+  |> Decode.andMap (Decode.field "entity_kname" (Decode.maybe Decode.string))
 
 decode_blocks: Decode.Decoder Blocks
 decode_blocks =
