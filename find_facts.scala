@@ -26,7 +26,7 @@ object Find_Facts {
     chapter: String,
     session: String,
     theory: String,
-    file: Path,
+    file: String,
     url_path: Path,
     command: String,
     start_line: Int,
@@ -39,6 +39,10 @@ object Find_Facts {
     typs: List[String],
     thms: List[String]
   ) {
+    def path = Path.explode(file)
+    def file_type: String = path.get_ext
+    def file_name: String = path.file_name
+
     def kinds: List[String] =
       (if (typs.nonEmpty) List(Kind.TYPE) else Nil) :::
       (if (consts.nonEmpty) List(Kind.CONST) else Nil) :::
@@ -57,7 +61,7 @@ object Find_Facts {
   }
 
   enum Field {
-    case chapter, session, theory, command, source, names, consts, typs, thms, kinds
+    case chapter, session, file_type, theory, command, source, names, consts, typs, thms, kinds
   }
 
   sealed trait Filter
@@ -93,6 +97,7 @@ object Find_Facts {
     chapter: Map[String, Long],
     session: Map[String, Long],
     theory: Map[String, Long],
+    file_type: Map[String, Long],
     command: Map[String, Long],
     kinds: Map[String, Long],
     consts: Map[String, Long],
@@ -192,6 +197,8 @@ object Find_Facts {
       val theory = Solr.Field("theory", Types.name)
       val theory_facet = Solr.Field("theory_facet", Solr.Type.string, Solr.Stored(false))
       val file = Solr.Field("file", Solr.Type.string, Solr.Indexed(false))
+      val file_type =
+        Solr.Field("file_type", Solr.Type.string, Solr.Column_Wise(true) ::: Solr.Stored(false))
       val url_path = Solr.Field("url_path", Solr.Type.string, Solr.Indexed(false))
       val command = Solr.Field("command", Solr.Type.string, Solr.Column_Wise(true))
       val start_line = Solr.Field("start_line", Solr.Type.int, Solr.Column_Wise(true))
@@ -216,11 +223,11 @@ object Find_Facts {
     }
 
     lazy val fields: Solr.Fields = Solr.Fields(
-      Fields.id, Fields.version, Fields.chapter, Fields.session, Fields.session_facet, Fields.theory,
-      Fields.theory_facet, Fields.file, Fields.url_path, Fields.command, Fields.start_line,
-      Fields.src_before, Fields.src_after, Fields.src, Fields.xml, Fields.html, Fields.consts,
-      Fields.consts_facet, Fields.typs, Fields.typs_facet, Fields.thms, Fields.thms_facet,
-      Fields.names, Fields.kinds)
+      Fields.id, Fields.version, Fields.chapter, Fields.session, Fields.session_facet,
+      Fields.theory, Fields.theory_facet, Fields.file, Fields.file_type, Fields.url_path,
+      Fields.command, Fields.start_line, Fields.src_before, Fields.src_after, Fields.src,
+      Fields.xml, Fields.html, Fields.consts, Fields.consts_facet, Fields.typs, Fields.typs_facet,
+      Fields.thms, Fields.thms_facet, Fields.names, Fields.kinds)
 
 
     /* operations */
@@ -237,7 +244,7 @@ object Find_Facts {
       val chapter = res.string(Fields.chapter)
       val session = res.string(Fields.session)
       val theory = res.string(Fields.theory)
-      val file = Path.explode(res.string(Fields.file))
+      val file = res.string(Fields.file)
       val url_path = Path.explode(res.string(Fields.url_path))
       val command = res.string(Fields.command)
       val start_line = res.int(Fields.start_line)
@@ -297,7 +304,8 @@ object Find_Facts {
             doc.string(Fields.session_facet) = block.session
             doc.string(Fields.theory) = block.theory
             doc.string(Fields.theory_facet) = block.theory
-            doc.string(Fields.file) = block.file.implode
+            doc.string(Fields.file) = block.file
+            doc.string(Fields.file_type) = block.file_type
             doc.string(Fields.url_path) = block.url_path.implode
             doc.string(Fields.command) = block.command
             doc.int(Fields.start_line) = block.start_line
@@ -349,19 +357,20 @@ object Find_Facts {
 
     def query_facets(db: Solr.Database, q: Solr.Source, fq: List[Solr.Source]): Facets =
       db.execute_facet_query(
-        List(Fields.chapter, Fields.session_facet, Fields.theory_facet, Fields.command, Fields.kinds,
-          Fields.consts_facet, Fields.typs_facet, Fields.thms_facet),
+        List(Fields.chapter, Fields.session_facet, Fields.theory_facet, Fields.file_type,
+          Fields.command, Fields.kinds, Fields.consts_facet, Fields.typs_facet, Fields.thms_facet),
         { res =>
           val chapter = res.string(Fields.chapter)
           val sessions = res.string(Fields.session_facet)
           val theories = res.string(Fields.theory_facet)
+          val file_types = res.string(Fields.file_type)
           val commands = res.string(Fields.command)
           val kinds = res.string(Fields.kinds)
           val consts = res.string(Fields.consts_facet)
           val typs = res.string(Fields.typs_facet)
           val thms = res.string(Fields.thms_facet)
 
-          Facets(chapter, sessions, theories, commands, kinds, consts, typs, thms)
+          Facets(chapter, sessions, theories, file_types, commands, kinds, consts, typs, thms)
         }, q = q, fq = fq)
 
 
@@ -374,6 +383,7 @@ object Find_Facts {
         case Field.session => Fields.session
         case Field.theory if select => Fields.theory_facet
         case Field.theory => Fields.theory
+        case Field.file_type => Fields.file_type
         case Field.command => Fields.command
         case Field.source => Fields.src
         case Field.names => Fields.names
@@ -448,7 +458,6 @@ object Find_Facts {
   /** indexing **/
 
   def make_thy_blocks(
-    name: Document.Node.Name,
     browser_info_context: Browser_Info.Context,
     document_info: Document_Info,
     theory_context: Export.Theory_Context,
@@ -466,12 +475,12 @@ object Find_Facts {
     val thy_dir = browser_info_context.theory_dir(theory_info)
 
     def make_node_blocks(
-      name: Document.Node.Name,
       snapshot: Document.Snapshot,
       command_ranges: List[(String, Text.Range)]
     ): List[Block] = {
       val version = snapshot.version.id
-      val url_path = thy_dir + browser_info_context.smart_html(theory_info, name.node)
+      val file = snapshot.node_name.node
+      val url_path = thy_dir + browser_info_context.smart_html(theory_info, snapshot.node_name.node)
 
       val elements =
         Browser_Info.Elements(html = Browser_Info.default_elements.html - Markup.ENTITY)
@@ -484,7 +493,7 @@ object Find_Facts {
       val index = Symbol.Index(content)
       val node_entities =
         TreeMap.from(entities
-          .filter(entity => Path.explode(entity.file).canonical == name.path.canonical)
+          .filter(entity => entity.file == file)
           .groupBy(entity => index.decode(entity.range).start))
 
       def get_source(start: Line.Position, stop: Line.Position): String = {
@@ -502,7 +511,7 @@ object Find_Facts {
         val line_range = document.range(range)
         val start_line = line_range.start.line1
 
-        val id = url_path.implode + "#" + range.start + ".." + range.stop
+        val id = file + "#" + range.start + ".." + range.stop
 
         val src_before =
           get_source(Line.Position((line_range.start.line - 5).max(0)), line_range.start)
@@ -528,9 +537,9 @@ object Find_Facts {
         val thms = get_entities(Export_Theory.Kind.THM)
 
         Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
-          file = name.path, url_path = url_path, command = command, start_line = start_line,
-          src_before = src_before, src = src, src_after = src_after, xml = xml, html = html,
-          consts = consts, typs = typs, thms = thms)
+          file = file, url_path = url_path, command = command, start_line = start_line, src_before =
+          src_before, src = src, src_after = src_after, xml = xml, html = html, consts = consts,
+          typs = typs, thms = thms)
       }
     }
 
@@ -547,12 +556,12 @@ object Find_Facts {
       for (block <- Thy_Blocks.read_blocks(snapshot).flatMap(expand_block))
       yield (block.command, block.range)
 
-    make_node_blocks(name, snapshot, thy_command_ranges) :::
+    make_node_blocks(snapshot, thy_command_ranges) :::
       (for {
         blob_name <- snapshot.node_files.tail
         snapshot1 = snapshot.switch(blob_name)
         range = Text.Range.length(snapshot1.node.source)
-        block <- make_node_blocks(blob_name, snapshot1, List(("", range)))
+        block <- make_node_blocks(snapshot1, List(("", range)))
       } yield block)
   }
 
@@ -589,8 +598,8 @@ object Find_Facts {
                 deps(session).proper_session_theories.foreach { name =>
                   progress.echo("Theory " + name.theory + " ...")
                   val theory_context = session_context.theory(name.theory)
-                  val blocks = make_thy_blocks(name, browser_info_context, document_info,
-                    theory_context, info.chapter)
+                  val blocks = make_thy_blocks(browser_info_context, document_info, theory_context,
+                    info.chapter)
                   Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
                 }
               })
@@ -700,6 +709,8 @@ object Find_Facts {
         "chapter" -> block.chapter,
         "session" -> block.session,
         "theory" -> block.theory,
+        "file" -> block.file,
+        "file_name" -> block.file_name,
         "url" -> url(block).toString,
         "command" -> block.command,
         "start_line" -> block.start_line,
@@ -720,6 +731,7 @@ object Find_Facts {
       JSON.Object(
         "chapter" -> facet.chapter,
         "session" -> facet.session,
+        "file_type" -> facet.file_type,
         "theory" -> facet.theory,
         "command" -> facet.command,
         "kinds" -> facet.kinds,

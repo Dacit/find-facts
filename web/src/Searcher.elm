@@ -43,6 +43,7 @@ max_facet_terms = 5
 
 chapterN = "chapter"
 sessionN = "session"
+file_typeN = "file_type"
 theoryN = "theory"
 commandN = "command"
 sourceN = "source"
@@ -53,7 +54,7 @@ thmsN = "thms"
 kindsN = "kinds"
 
 search_fields = [sessionN, theoryN, commandN, sourceN, namesN, constsN, typsN, thmsN]
-facet_fields = [chapterN, sessionN, theoryN, commandN, constsN, typsN, thmsN, kindsN]
+facet_fields = [chapterN, sessionN, file_typeN, theoryN, commandN, constsN, typsN, thmsN, kindsN]
 
 
 {- search components -}
@@ -185,6 +186,7 @@ view_field field =
   Dict.fromList [
     (chapterN, "Chapter"),
     (sessionN, "Session"),
+    (file_typeN, "File Type"),
     (theoryN, "Theory"),
     (commandN, "Command"),
     (sourceN, "Source Code"),

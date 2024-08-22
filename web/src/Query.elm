@@ -88,6 +88,8 @@ type alias Block = {
   chapter: String,
   session: String,
   theory: String,
+  file: String,
+  file_name: String,
   url: String,
   command: String,
   start_line: Int,
@@ -112,6 +114,8 @@ decode_block =
   |> Decode.andMap (Decode.field "chapter" Decode.string)
   |> Decode.andMap (Decode.field "session" Decode.string)
   |> Decode.andMap (Decode.field "theory" Decode.string)
+  |> Decode.andMap (Decode.field "file" Decode.string)
+  |> Decode.andMap (Decode.field "file_name" Decode.string)
   |> Decode.andMap (Decode.field "url" Decode.string)
   |> Decode.andMap (Decode.field "command" Decode.string)
   |> Decode.andMap (Decode.field "start_line" Decode.int)

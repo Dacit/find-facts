@@ -76,7 +76,8 @@ view_block block =
      blocks = (
        Card.block
          (LayoutGrid.layoutGrid [LayoutGrid.alignLeft, style "width" "100%"] [
-           div [Typography.caption, style "margin-bottom" "8px"] [text block.theory],
+           div [Typography.caption, style "margin-bottom" "8px"]
+             [text (block.session ++ "/" ++ block.file_name)],
            Utils.view_code block.html block.start_line]),
        [])}
 
