@@ -250,6 +250,14 @@ object Solr {
     def bytes(field: Field): Bytes = single(field, bytes_value)
     def date(field: Field): Date = single(field, date_value)
 
+    def get_bool(field: Field): Option[Boolean] = get(field, bool_value)
+    def get_int(field: Field): Option[Int] = get(field, int_value)
+    def get_long(field: Field): Option[Long] = get(field, long_value)
+    def get_double(field: Field): Option[Double] = get(field, double_value)
+    def get_string(field: Field): Option[String] = get(field, string_value)
+    def get_bytes(field: Field): Option[Bytes] = get(field, bytes_value)
+    def get_date(field: Field): Option[Date] = get(field, date_value)
+
     def list_bool(field: Field): List[Boolean] = list(field, bool_value)
     def list_int(field: Field): List[Int] = list(field, int_value)
     def list_long(field: Field): List[Long] = list(field, long_value)
