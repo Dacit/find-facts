@@ -571,7 +571,7 @@ object Find_Facts {
       } yield block)
   }
 
-  def index_blocks(
+  def find_facts_index(
     options: Options,
     sessions: List[String],
     clean: Boolean = false,
@@ -647,7 +647,7 @@ object Find_Facts {
 
       val progress = new Console_Progress()
 
-      index_blocks(options, sessions, clean = clean, progress = progress)
+      find_facts_index(options, sessions, clean = clean, progress = progress)
     })
 
 
