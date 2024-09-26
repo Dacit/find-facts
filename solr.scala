@@ -327,20 +327,28 @@ object Solr {
 
   /* database */
 
-  def open_database(data: Data, path: Path = solr_home): Database = {
-    java.util.logging.LogManager.getLogManager.reset()
-    File.write(Isabelle_System.make_directory(solr_home) + Path.basic("solr.xml"), "<solr/>")
-    val conf_dir = solr_home + Path.make(List(data.name, "conf"))
-    val server = new EmbeddedSolrServer(path.java_path, data.name)
+  def init_database(name: String, data: Data, clean: Boolean = false): Database = {
+    val conf_dir = solr_home + Path.make(List(name, "conf"))
+    if (clean) Isabelle_System.rm_tree(conf_dir.dir)
 
-    if (conf_dir.is_dir) server.getCoreContainer.reload(data.name)
-    else {
+    if (!conf_dir.is_dir) {
       Isabelle_System.make_directory(conf_dir)
       File.write(conf_dir + Path.basic("schema.xml"), XML.string_of_body(data.schema))
       File.write(conf_dir + Path.basic("solrconfig.xml"), XML.string_of_body(data.solr_config))
       data.more_config.foreach((path, content) => File.write(conf_dir + path, content))
-      server.getCoreContainer.create(data.name, Map.empty.asJava)
     }
+    open_database(name)
+  }
+
+  def open_database(name: String): Database = {
+    java.util.logging.LogManager.getLogManager.reset()
+    File.write(Isabelle_System.make_directory(solr_home) + Path.basic("solr.xml"), "<solr/>")
+
+    val server = new EmbeddedSolrServer(solr_home.java_path, name)
+
+    val cores = server.getCoreContainer.getAllCoreNames.asScala
+    if (cores.contains(name)) server.getCoreContainer.reload(name)
+    else server.getCoreContainer.create(name, Map.empty.asJava)
 
     new Database(server)
   }

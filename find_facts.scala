@@ -436,8 +436,6 @@ object Find_Facts {
     }
   }
 
-  def open_database(): Solr.Database = Solr.open_database(Find_Facts.private_data)
-
   def query_block(db: Solr.Database, id: String): Option[Block] = {
     val q = Solr.filter(Find_Facts.private_data.Fields.id, Solr.phrase(id))
     Find_Facts.private_data.read_blocks(db, q, Nil).blocks.headOption
@@ -573,6 +571,7 @@ object Find_Facts {
 
   def find_facts_index(
     options: Options,
+    db_name: String,
     sessions: List[String],
     clean: Boolean = false,
     progress: Progress = new Progress
@@ -585,15 +584,10 @@ object Find_Facts {
     val deps = Sessions.Deps.load(session_structure)
     val browser_info_context = Browser_Info.context(session_structure)
 
-    if (clean) {
-      progress.echo("Cleaning " + Solr.solr_home.implode)
-      Isabelle_System.rm_tree(Solr.solr_home)
-    }
-
     if (sessions.isEmpty) progress.echo("Nothing to index")
     else {
       val stats =
-        using(open_database()) { db =>
+        using(Solr.init_database(db_name, Find_Facts.private_data, clean = clean)) { db =>
           using(Export.open_database_context(store)) { database_context =>
             val document_info = Document_Info.read(database_context, deps, sessions)
             sessions.foreach(session_name =>
@@ -629,6 +623,7 @@ object Find_Facts {
     Scala_Project.here,
     { args =>
       var clean = false
+      var db_name = "find_facts"
       var options = Options.init()
 
       val getopts = Getopts("""
@@ -636,18 +631,20 @@ object Find_Facts {
 
     Options are:
       -c           clean previous index
+      -n NAME      database name (default: """ + db_name + """)
       -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
 
     Index sessions for find_facts.
   """,
         "c" -> (_ => clean = true),
+        "n:" -> (arg => db_name = arg),
         "o:" -> (arg => options = options + arg))
 
       val sessions = getopts(args)
 
       val progress = new Console_Progress()
 
-      find_facts_index(options, sessions, clean = clean, progress = progress)
+      find_facts_index(options, db_name, sessions, clean = clean, progress = progress)
     })
 
 
@@ -786,6 +783,7 @@ object Find_Facts {
 
   def find_facts(
     options: Options,
+    db_name: String,
     port: Int,
     devel: Boolean = false,
     progress: Progress = new Progress
@@ -807,7 +805,7 @@ object Find_Facts {
 
     val frontend = project.build_html(progress)
 
-    using(open_database()) { db =>
+    using(Solr.open_database(db_name)) { db =>
       val stats = Find_Facts.query_stats(db, Query(Nil))
       progress.echo("Started find facts with " + stats.results + " blocks, " +
         stats.consts + " consts, " + stats.typs + " typs, " + stats.thms + " thms")
@@ -863,6 +861,7 @@ object Find_Facts {
   val isabelle_tool1 = Isabelle_Tool("find_facts", "run find_facts server", Scala_Project.here,
   { args =>
     var devel = false
+    var db_name = "find_facts"
     var options = Options.init()
     var port = 8080
     var verbose = false
@@ -872,6 +871,7 @@ Usage: isabelle find_facts [OPTIONS]
 
   Options are:
     -d           devel mode
+    -n NAME      database name
     -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
     -p PORT      explicit web server port
     -v           verbose server
@@ -879,6 +879,7 @@ Usage: isabelle find_facts [OPTIONS]
   Run a find_facts query.
 """,
         "d" -> (_ => devel = true),
+        "n:" -> (arg => db_name = arg),
         "o:" -> (arg => options = options + arg),
         "p:" -> (arg => port = Value.Int.parse(arg)),
         "v" -> (_ => verbose = true))
@@ -888,6 +889,6 @@ Usage: isabelle find_facts [OPTIONS]
 
     val progress = new Console_Progress(verbose = verbose)
 
-    find_facts(options, port, devel = devel, progress = progress)
+    find_facts(options, db_name, port, devel = devel, progress = progress)
   })
 }
