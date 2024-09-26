@@ -462,6 +462,8 @@ object Find_Facts {
   /** indexing **/
 
   def make_thy_blocks(
+    options: Options,
+    session: Session,
     browser_info_context: Browser_Info.Context,
     document_info: Document_Info,
     theory_context: Export.Theory_Context,
@@ -472,10 +474,11 @@ object Find_Facts {
       Build.read_theory(theory_context).getOrElse(error("Missing snapshot for " + theory))
 
     val entities = Export_Theory.read_theory(theory_context).entity_iterator.toList
-    val session = theory_context.session_context.session_name
+    val session_name = theory_context.session_context.session_name
 
     val theory_info =
-      document_info.theory_by_name(session, theory).getOrElse(error("No info for theory " + theory))
+      document_info.theory_by_name(session_name, theory).getOrElse(
+        error("No info for theory " + theory))
     val thy_dir = browser_info_context.theory_dir(theory_info)
 
     def make_node_blocks(
@@ -505,11 +508,8 @@ object Find_Facts {
         Symbol.decode(range.substring(document.text))
       }
 
-      val comment = Markup.Elements(Markup.ML_COMMENT, Markup.COMMENT, Markup.COMMENT1,
-        Markup.COMMENT2, Markup.COMMENT3)
-      val comment_ranges =
-        for (info <- snapshot.select(Text.Range.full, comment, _ => _ => Some(())))
-        yield ("", info.range)
+      val rendering = new Rendering(snapshot, options, session)
+      val comment_ranges = rendering.comments(Text.Range.full).map(markup => ("", markup.range))
 
       for ((command, range) <- command_ranges ::: comment_ranges) yield {
         val line_range = document.range(range)
@@ -542,10 +542,10 @@ object Find_Facts {
         val consts = get_entities(Export_Theory.Kind.CONST)
         val thms = get_entities(Export_Theory.Kind.THM)
 
-        Block(id = id, version = version, chapter = chapter, session = session, theory = theory,
-          file = file, url_path = url_path, command = command, start_line = start_line, src_before =
-          src_before, src = src, src_after = src_after, xml = xml, html = html, entity_kname =
-          entity_kname, consts = consts, typs = typs, thms = thms)
+        Block(id = id, version = version, chapter = chapter, session = session_name, theory =
+          theory, file = file, url_path = url_path, command = command, start_line = start_line,
+          src_before = src_before, src = src, src_after = src_after, xml = xml, html = html,
+          entity_kname = entity_kname, consts = consts, typs = typs, thms = thms)
       }
     }
 
@@ -578,6 +578,7 @@ object Find_Facts {
     progress: Progress = new Progress
   ): Unit = {
     val store = Store(options)
+    val session = Session(options, Resources.bootstrap)
 
     val selection = Sessions.Selection(sessions = sessions)
     val session_structure = Sessions.load_structure(options).selection(selection)
@@ -595,17 +596,18 @@ object Find_Facts {
         using(open_database()) { db =>
           using(Export.open_database_context(store)) { database_context =>
             val document_info = Document_Info.read(database_context, deps, sessions)
-            sessions.foreach(session =>
-              using(database_context.open_session0(session)) { session_context =>
-                val info = session_structure(session)
-                progress.echo("Session " + info.chapter + "/" + session + " ...")
+            sessions.foreach(session_name =>
+              using(database_context.open_session0(session_name)) { session_context =>
+                val info = session_structure(session_name)
+                progress.echo("Session " + info.chapter + "/" + session_name + " ...")
 
-                Find_Facts.private_data.delete_session(db, session)
-                deps(session).proper_session_theories.foreach { name =>
+                Find_Facts.private_data.delete_session(db, session_name)
+                deps(session_name).proper_session_theories.foreach { name =>
                   progress.echo("Theory " + name.theory + " ...")
                   val theory_context = session_context.theory(name.theory)
-                  val blocks = make_thy_blocks(browser_info_context, document_info, theory_context,
-                    info.chapter)
+                  val blocks =
+                    make_thy_blocks(options, session, browser_info_context, document_info,
+                      theory_context, info.chapter)
                   Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
                 }
               })
