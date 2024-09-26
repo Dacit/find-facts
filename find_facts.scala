@@ -807,7 +807,7 @@ object Find_Facts {
 
     val frontend = project.build_html(progress)
 
-    using(Solr.open_database(Find_Facts.private_data)) { db =>
+    using(open_database()) { db =>
       val stats = Find_Facts.query_stats(db, Query(Nil))
       progress.echo("Started find facts with " + stats.results + " blocks, " +
         stats.consts + " consts, " + stats.typs + " typs, " + stats.thms + " thms")
