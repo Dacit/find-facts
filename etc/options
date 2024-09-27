@@ -1,5 +1,7 @@
 section "Find Facts"
 
+option find_facts_database_name : string = "local"
+
 option browser_info_url_library : string = "https://isabelle.in.tum.de/dist/library/"
   -- "base url for Isabelle HTML presentation"
 

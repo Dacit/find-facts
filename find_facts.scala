@@ -571,12 +571,12 @@ object Find_Facts {
 
   def find_facts_index(
     options: Options,
-    db_name: String,
     sessions: List[String],
     clean: Boolean = false,
     progress: Progress = new Progress
   ): Unit = {
     val store = Store(options)
+    val database = options.string("find_facts_database_name")
     val session = Session(options, Resources.bootstrap)
 
     val selection = Sessions.Selection(sessions = sessions)
@@ -587,7 +587,7 @@ object Find_Facts {
     if (sessions.isEmpty) progress.echo("Nothing to index")
     else {
       val stats =
-        using(Solr.init_database(db_name, Find_Facts.private_data, clean = clean)) { db =>
+        using(Solr.init_database(database, Find_Facts.private_data, clean = clean)) { db =>
           using(Export.open_database_context(store)) { database_context =>
             val document_info = Document_Info.read(database_context, deps, sessions)
             sessions.foreach(session_name =>
@@ -623,7 +623,6 @@ object Find_Facts {
     Scala_Project.here,
     { args =>
       var clean = false
-      var db_name = "find_facts"
       var options = Options.init()
 
       val getopts = Getopts("""
@@ -631,36 +630,36 @@ object Find_Facts {
 
     Options are:
       -c           clean previous index
-      -n NAME      database name (default: """ + db_name + """)
       -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
 
     Index sessions for find_facts.
   """,
         "c" -> (_ => clean = true),
-        "n:" -> (arg => db_name = arg),
         "o:" -> (arg => options = options + arg))
 
       val sessions = getopts(args)
 
       val progress = new Console_Progress()
 
-      find_facts_index(options, db_name, sessions, clean = clean, progress = progress)
+      find_facts_index(options, sessions, clean = clean, progress = progress)
     })
 
 
   /** index components **/
 
   def find_facts_index_component(
-    db_name: String,
+    options: Options,
     target_dir: Path = Path.current,
     progress: Progress = new Progress
   ): Unit = {
-    val component = "find_facts_index-" + db_name
+    val database = options.string("find_facts_database_name")
+
+    val component = "find_facts_index-" + database
     val component_dir =
       Components.Directory(target_dir + Path.basic(component)).create(progress = progress)
 
-    Isabelle_System.copy_dir(Solr.database_dir(db_name), component_dir.path)
-    component_dir.write_settings("SOLR_COMPONENTS=\"$SOLR_COMPONENTS:$COMPONENT/" + db_name + "\"")
+    Isabelle_System.copy_dir(Solr.database_dir(database), component_dir.path)
+    component_dir.write_settings("SOLR_COMPONENTS=\"$SOLR_COMPONENTS:$COMPONENT/" + database + "\"")
   }
 
 
@@ -669,26 +668,25 @@ object Find_Facts {
   val isabelle_tool1 = Isabelle_Tool("find_facts_index_component",
     "build component from find_facts index", Scala_Project.here,
     { args =>
+      var options = Options.init()
       var target_dir = Path.current
 
       val getopts = Getopts("""
   Usage: isabelle find_facts_index_component NAME
 
     Options are:
+      -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
       -D DIR       target directory (default ".")
 
     Build component from finalized find_facts index with given name.
   """,
+        "o:" -> (arg => options = options + arg),
         "D:" -> (arg => target_dir = Path.explode(arg)))
 
       val more_args = getopts(args)
-      val name =
-        more_args match {
-          case name :: Nil => name
-          case _ => getopts.usage()
-        }
+      if (more_args.nonEmpty) getopts.usage()
 
-      find_facts_index_component(name, target_dir = target_dir)
+      find_facts_index_component(options, target_dir = target_dir)
     })
 
 
@@ -827,11 +825,11 @@ object Find_Facts {
 
   def find_facts(
     options: Options,
-    db_name: String,
     port: Int,
     devel: Boolean = false,
     progress: Progress = new Progress
   ): Unit = {
+    val database = options.string("find_facts_database_name")
     val encode = new Encode(options)
     val logo = Bytes.read(Path.explode("$FIND_FACTS_HOME/web/favicon.ico"))
 
@@ -849,7 +847,7 @@ object Find_Facts {
 
     val frontend = project.build_html(progress)
 
-    using(Solr.open_database(db_name)) { db =>
+    using(Solr.open_database(database)) { db =>
       val stats = Find_Facts.query_stats(db, Query(Nil))
       progress.echo("Started find facts with " + stats.results + " blocks, " +
         stats.consts + " consts, " + stats.typs + " typs, " + stats.thms + " thms")
@@ -905,7 +903,6 @@ object Find_Facts {
   val isabelle_tool2 = Isabelle_Tool("find_facts", "run find_facts server", Scala_Project.here,
   { args =>
     var devel = false
-    var db_name = "find_facts"
     var options = Options.init()
     var port = 8080
     var verbose = false
@@ -915,7 +912,6 @@ Usage: isabelle find_facts [OPTIONS]
 
   Options are:
     -d           devel mode
-    -n NAME      database name
     -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
     -p PORT      explicit web server port
     -v           verbose server
@@ -923,7 +919,6 @@ Usage: isabelle find_facts [OPTIONS]
   Run a find_facts query.
 """,
         "d" -> (_ => devel = true),
-        "n:" -> (arg => db_name = arg),
         "o:" -> (arg => options = options + arg),
         "p:" -> (arg => port = Value.Int.parse(arg)),
         "v" -> (_ => verbose = true))
@@ -933,6 +928,6 @@ Usage: isabelle find_facts [OPTIONS]
 
     val progress = new Console_Progress(verbose = verbose)
 
-    find_facts(options, db_name, port, devel = devel, progress = progress)
+    find_facts(options, port, devel = devel, progress = progress)
   })
 }
