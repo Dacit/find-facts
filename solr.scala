@@ -330,15 +330,18 @@ object Solr {
   def database_dir(name: String): Path = solr_home + Path.basic(name)
   
   def init_database(name: String, data: Data, clean: Boolean = false): Database = {
-    val conf_dir = database_dir(name) + Path.basic("conf")
-    if (clean) Isabelle_System.rm_tree(conf_dir.dir)
+    val db_dir = database_dir(name)
 
+    if (clean) Isabelle_System.rm_tree(db_dir)
+
+    val conf_dir = db_dir + Path.basic("conf")
     if (!conf_dir.is_dir) {
       Isabelle_System.make_directory(conf_dir)
       File.write(conf_dir + Path.basic("schema.xml"), XML.string_of_body(data.schema))
       File.write(conf_dir + Path.basic("solrconfig.xml"), XML.string_of_body(data.solr_config))
       data.more_config.foreach((path, content) => File.write(conf_dir + path, content))
     }
+
     open_database(name)
   }
 
