@@ -327,8 +327,10 @@ object Solr {
 
   /* database */
 
+  def database_dir(name: String): Path = solr_home + Path.basic(name)
+  
   def init_database(name: String, data: Data, clean: Boolean = false): Database = {
-    val conf_dir = solr_home + Path.make(List(name, "conf"))
+    val conf_dir = database_dir(name) + Path.basic("conf")
     if (clean) Isabelle_System.rm_tree(conf_dir.dir)
 
     if (!conf_dir.is_dir) {
