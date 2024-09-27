@@ -18,7 +18,14 @@ import org.apache.solr.common.{SolrDocument, SolrInputDocument}
 
 
 object Solr {
-  val solr_home = Path.explode("$ISABELLE_HOME_USER/solr")
+  def init(solr_home: Path): Path = {
+    File.write(Isabelle_System.make_directory(solr_home) + Path.basic("solr.xml"), "<solr/>")
+    java.util.logging.LogManager.getLogManager.reset()
+    solr_home
+  }
+
+  lazy val solr_home = init(Path.explode("$ISABELLE_HOME_USER/solr"))
+
 
   /** query language */
 
@@ -328,7 +335,7 @@ object Solr {
   /* database */
 
   def database_dir(name: String): Path = solr_home + Path.basic(name)
-  
+
   def init_database(name: String, data: Data, clean: Boolean = false): Database = {
     val db_dir = database_dir(name)
 
@@ -346,9 +353,6 @@ object Solr {
   }
 
   def open_database(name: String): Database = {
-    java.util.logging.LogManager.getLogManager.reset()
-    File.write(Isabelle_System.make_directory(solr_home) + Path.basic("solr.xml"), "<solr/>")
-
     val server = new EmbeddedSolrServer(solr_home.java_path, name)
 
     val cores = server.getCoreContainer.getAllCoreNames.asScala
