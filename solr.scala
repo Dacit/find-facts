@@ -338,10 +338,10 @@ object Solr {
 
   /* database */
 
-  def database_dir(name: String): Path = solr_home + Path.basic(name)
+  def database_dir(database: String): Path = solr_home + Path.basic(database)
 
-  def init_database(name: String, data: Data, clean: Boolean = false): Database = {
-    val db_dir = database_dir(name)
+  def init_database(database: String, data: Data, clean: Boolean = false): Database = {
+    val db_dir = database_dir(database)
 
     if (clean) Isabelle_System.rm_tree(db_dir)
 
@@ -353,15 +353,15 @@ object Solr {
       data.more_config.foreach((path, content) => File.write(conf_dir + path, content))
     }
 
-    open_database(name)
+    open_database(database)
   }
 
-  def open_database(name: String): Database = {
-    val server = new EmbeddedSolrServer(solr_home.java_path, name)
+  def open_database(database: String): Database = {
+    val server = new EmbeddedSolrServer(solr_home.java_path, database)
 
     val cores = server.getCoreContainer.getAllCoreNames.asScala
-    if (cores.contains(name)) server.getCoreContainer.reload(name)
-    else server.getCoreContainer.create(name, Map.empty.asJava)
+    if (cores.contains(database)) server.getCoreContainer.reload(database)
+    else server.getCoreContainer.create(database, Map.empty.asJava)
 
     new Database(server)
   }
