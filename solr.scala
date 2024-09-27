@@ -20,6 +20,10 @@ import org.apache.solr.common.{SolrDocument, SolrInputDocument}
 object Solr {
   def init(solr_home: Path): Path = {
     File.write(Isabelle_System.make_directory(solr_home) + Path.basic("solr.xml"), "<solr/>")
+
+    for (entry <- space_explode(':', Isabelle_System.getenv("SOLR_COMPONENTS")) if entry.nonEmpty)
+      Isabelle_System.symlink(Path.explode(entry).absolute, solr_home, force = true)
+
     java.util.logging.LogManager.getLogManager.reset()
     solr_home
   }

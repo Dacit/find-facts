@@ -648,6 +648,50 @@ object Find_Facts {
     })
 
 
+  /** index components **/
+
+  def find_facts_index_component(
+    db_name: String,
+    target_dir: Path = Path.current,
+    progress: Progress = new Progress
+  ): Unit = {
+    val component = "find_facts_index-" + db_name
+    val component_dir =
+      Components.Directory(target_dir + Path.basic(component)).create(progress = progress)
+
+    Isabelle_System.copy_dir(Solr.database_dir(db_name), component_dir.path)
+    component_dir.write_settings("SOLR_COMPONENTS=\"$SOLR_COMPONENTS:$COMPONENT/" + db_name + "\"")
+  }
+
+
+  /* Isabelle tool wrapper */
+
+  val isabelle_tool1 = Isabelle_Tool("find_facts_index_component",
+    "build component from find_facts index", Scala_Project.here,
+    { args =>
+      var target_dir = Path.current
+
+      val getopts = Getopts("""
+  Usage: isabelle find_facts_index_component NAME
+
+    Options are:
+      -D DIR       target directory (default ".")
+
+    Build component from finalized find_facts index with given name.
+  """,
+        "D:" -> (arg => target_dir = Path.explode(arg)))
+
+      val more_args = getopts(args)
+      val name =
+        more_args match {
+          case name :: Nil => name
+          case _ => getopts.usage()
+        }
+
+      find_facts_index_component(name, target_dir = target_dir)
+    })
+
+
   /** querying **/
 
   /* requests and parsing */
@@ -858,7 +902,7 @@ object Find_Facts {
 
   /* Isabelle tool wrapper */
 
-  val isabelle_tool1 = Isabelle_Tool("find_facts", "run find_facts server", Scala_Project.here,
+  val isabelle_tool2 = Isabelle_Tool("find_facts", "run find_facts server", Scala_Project.here,
   { args =>
     var devel = false
     var db_name = "find_facts"
