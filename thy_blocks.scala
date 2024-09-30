@@ -125,7 +125,8 @@ object Thy_Blocks {
           case Some(Decl(_)) if span.is_of_kind(proof_open) => blocks.push(Prf(List(span)))
           case Some(Decl(_)) if span.is_of_kind(proof_body) => blocks.add(span)
           case Some(Decl(_)) if span.is_of_kind(theory_goal) => blocks.push(Prf(List(span)))
-          case Some(Decl(_)) if span.is_of_kind(theory_block) => blocks.push(Decl(List(span)))
+          case Some(Decl(_)) if span.is_of_kind(theory_block) =>
+            (if (span.has_begin) blocks.push else blocks.add)(Decl(List(span)))
           case Some(Decl(_)) if span.is_of_kind(theory_end) => blocks.add(span).pop
           case Some(Decl(_)) if span.is_of_kind(theory_body) => blocks.add(span)
           case e => error("Unexpected span " + span + " at " + e)
