@@ -572,6 +572,7 @@ object Find_Facts {
   def find_facts_index(
     options: Options,
     sessions: List[String],
+    dirs: List[Path] = Nil,
     clean: Boolean = false,
     progress: Progress = new Progress
   ): Unit = {
@@ -580,7 +581,7 @@ object Find_Facts {
     val session = Session(options, Resources.bootstrap)
 
     val selection = Sessions.Selection(sessions = sessions)
-    val session_structure = Sessions.load_structure(options).selection(selection)
+    val session_structure = Sessions.load_structure(options, dirs = dirs).selection(selection)
     val deps = Sessions.Deps.load(session_structure)
     val browser_info_context = Browser_Info.context(session_structure)
 
@@ -627,6 +628,7 @@ object Find_Facts {
     Scala_Project.here,
     { args =>
       var clean = false
+      val dirs = new mutable.ListBuffer[Path]
       var options = Options.init()
 
       val getopts = Getopts("""
@@ -639,13 +641,14 @@ object Find_Facts {
     Index sessions for find_facts.
   """,
         "c" -> (_ => clean = true),
+        "d:" -> (arg => dirs += Path.explode(arg)),
         "o:" -> (arg => options = options + arg))
 
       val sessions = getopts(args)
 
       val progress = new Console_Progress()
 
-      find_facts_index(options, sessions, clean = clean, progress = progress)
+      find_facts_index(options, sessions, dirs = dirs.toList, clean = clean, progress = progress)
     })
 
 
