@@ -590,7 +590,8 @@ object Find_Facts {
         using(Solr.init_database(database, Find_Facts.private_data, clean = clean)) { db =>
           using(Export.open_database_context(store)) { database_context =>
             val document_info = Document_Info.read(database_context, deps, sessions)
-            sessions.foreach(session_name =>
+            
+            def index_session(session_name: String): Unit = {
               using(database_context.open_session0(session_name)) { session_context =>
                 val info = session_structure(session_name)
                 progress.echo("Session " + info.chapter + "/" + session_name + " ...")
@@ -604,7 +605,10 @@ object Find_Facts {
                       theory_context, info.chapter)
                   Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
                 }
-              })
+              }
+            }
+
+            Par_List.map(index_session, sessions)
           }
 
           val query = Query(Field_Filter(Field.session, sessions.map(Atom.Exact(_))))
