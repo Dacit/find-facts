@@ -465,12 +465,10 @@ object Find_Facts {
     browser_info_context: Browser_Info.Context,
     document_info: Document_Info,
     theory_context: Export.Theory_Context,
+    snapshot: Document.Snapshot,
     chapter: String
   ): List[Block] = {
     val theory = theory_context.theory
-    val snapshot =
-      Build.read_theory(theory_context).getOrElse(error("Missing snapshot for " + theory))
-
     val entities = Export_Theory.read_theory(theory_context).entity_iterator.toList
     val session_name = theory_context.session_context.session_name
 
@@ -599,12 +597,16 @@ object Find_Facts {
 
                 Find_Facts.private_data.delete_session(db, session_name)
                 deps(session_name).proper_session_theories.foreach { name =>
-                  progress.echo("Theory " + name.theory + " ...")
                   val theory_context = session_context.theory(name.theory)
-                  val blocks =
-                    make_thy_blocks(options, session, browser_info_context, document_info,
-                      theory_context, info.chapter)
-                  Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
+                  Build.read_theory(theory_context) match {
+                    case None => progress.echo_warning("No snapshot for theory " + name.theory)
+                    case Some(snapshot) =>
+                      progress.echo("Theory " + name.theory + " ...")
+                      val blocks =
+                        make_thy_blocks(options, session, browser_info_context, document_info,
+                          theory_context, snapshot, info.chapter)
+                      Find_Facts.private_data.update_theory(db, theory_context.theory, blocks)
+                  }
                 }
               }
             }
