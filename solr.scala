@@ -390,13 +390,17 @@ object Solr {
       make_result(new Results(solr, query, cursor1, more_chunks))
     }
 
-    def transaction[A](body: => A): A =
+    private val in_transaction = Synchronized(false)
+    def transaction[A](body: => A): A = synchronized {
+      in_transaction.change(b => { require(!b, "transaction already active"); true })
       try {
         val result = body
         solr.commit()
         result
       }
       catch { case exn: Throwable => solr.rollback(); throw exn }
+      finally { in_transaction.change(_ => false) }
+    }
 
     def execute_facet_query[A](
       fields: List[Field],
