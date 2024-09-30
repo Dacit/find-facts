@@ -490,19 +490,19 @@ object Find_Facts {
       val node_context = Browser_Info.Node_Context.empty
 
       val content = XML.content(snapshot.xml_markup(elements = Markup.Elements.empty))
+      def get_content(range: Text.Range): String =
+        Symbol.decode(Line.normalize(range.substring(content)))
+
       val document = Line.Document(content)
       val num_lines = document.lines.length
+      def content_range(start: Line.Position, stop: Line.Position): Text.Range =
+        Text.Range(document.offset(start).get, document.offset(stop).get)
 
       val index = Symbol.Index(content)
       val node_entities =
         TreeMap.from(entities
           .filter(entity => entity.file == file)
           .groupBy(entity => index.decode(entity.range).start))
-
-      def get_source(start: Line.Position, stop: Line.Position): String = {
-        val range = Text.Range(document.offset(start).get, document.offset(stop).get)
-        Symbol.decode(range.substring(document.text))
-      }
 
       val rendering = new Rendering(snapshot, options, session)
       val comment_ranges = rendering.comments(Text.Range.full).map(markup => ("", markup.range))
@@ -513,11 +513,11 @@ object Find_Facts {
 
         val id = file + "|" + range.start + ".." + range.stop
 
-        val src_before =
-          get_source(Line.Position((line_range.start.line - 5).max(0)), line_range.start)
-        val src = Symbol.decode(document.get_text(range).get)
-        val src_after =
-          get_source(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines)))
+        val src_before = get_content(
+          content_range(Line.Position((line_range.start.line - 5).max(0)), line_range.start))
+        val src = get_content(range)
+        val src_after = get_content(
+          content_range(line_range.stop, Line.Position((line_range.stop.line + 5).min(num_lines))))
 
         val xml = snapshot.xml_markup(range, elements = elements.html)
         val html =
