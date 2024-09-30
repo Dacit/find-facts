@@ -122,6 +122,8 @@ object Thy_Blocks {
           case Some(Prf(_)) if span.is_of_kind(proof_close) => blocks.add(span).pop
           case Some(Prf(_)) if span.is_of_kind(qed_global) => blocks.add(span).pop_prfs
           case Some(Prf(_)) if span.is_of_kind(proof_body) => blocks.add(span)
+          case Some(Decl(_)) if span.is_of_kind(proof_open) => blocks.push(Prf(List(span)))
+          case Some(Decl(_)) if span.is_of_kind(proof_body) => blocks.add(span)
           case Some(Decl(_)) if span.is_of_kind(theory_goal) => blocks.push(Prf(List(span)))
           case Some(Decl(_)) if span.is_of_kind(theory_block) => blocks.push(Decl(List(span)))
           case Some(Decl(_)) if span.is_of_kind(theory_end) => blocks.add(span).pop
