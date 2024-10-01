@@ -925,7 +925,7 @@ Usage: isabelle find_facts [OPTIONS]
     -p PORT      explicit web server port
     -v           verbose server
 
-  Run a find_facts query.
+  Run the find_facts web service.
 """,
         "d" -> (_ => devel = true),
         "o:" -> (arg => options = options + arg),

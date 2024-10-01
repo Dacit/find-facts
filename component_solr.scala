@@ -101,7 +101,7 @@ SOLR_SCHEMA_VERSION="1.6"
         var verbose = false
 
         val getopts = Getopts("""
-Usage: isabelle component_minisat [OPTIONS]
+Usage: isabelle component_solr [OPTIONS]
 
   Options are:
     -D DIR       target directory (default ".")
