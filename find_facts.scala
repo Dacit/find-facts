@@ -638,6 +638,7 @@ object Find_Facts {
 
     Options are:
       -c           clean previous index
+      -d DIR       include session directory
       -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
 
     Index sessions for find_facts.
