@@ -562,6 +562,7 @@ object Find_Facts {
       (for {
         blob_name <- snapshot.node_files.tail
         snapshot1 = snapshot.switch(blob_name)
+        if snapshot1.node.source_wellformed
         range = Text.Range.length(snapshot1.node.source)
         block <- make_node_blocks(snapshot1, List(("", range)))
       } yield block)
