@@ -11,9 +11,9 @@ import scala.jdk.CollectionConverters.*
 import org.apache.solr.client.solrj.embedded.EmbeddedSolrServer
 import org.apache.solr.client.solrj.request.json.{JsonQueryRequest, TermsFacetMap, DomainMap}
 import org.apache.solr.client.solrj.response.json.{BucketJsonFacet, NestableJsonFacet}
-import org.apache.solr.client.solrj.response.{FacetField, QueryResponse}
-import org.apache.solr.client.solrj.{SolrClient, SolrQuery}
-import org.apache.solr.common.params.{CursorMarkParams, SolrParams}
+import org.apache.solr.client.solrj.response.QueryResponse
+import org.apache.solr.client.solrj.SolrQuery
+import org.apache.solr.common.params.CursorMarkParams
 import org.apache.solr.common.{SolrDocument, SolrInputDocument}
 
 
