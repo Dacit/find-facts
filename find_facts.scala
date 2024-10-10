@@ -359,7 +359,12 @@ object Find_Facts {
           Stats(results, sessions, theories, commands, consts, typs, thms)
         }, q = q, fq = fq)
 
-    def query_facets(db: Solr.Database, q: Solr.Source, fq: List[Solr.Source]): Facets =
+    def query_facets(
+      db: Solr.Database,
+      q: Solr.Source,
+      fq: List[Solr.Source],
+      max_terms: Int = 100
+    ): Facets =
       db.execute_facet_query(
         List(Fields.chapter, Fields.session_facet, Fields.theory_facet, Fields.file_type,
           Fields.command, Fields.kinds, Fields.consts_facet, Fields.typs_facet, Fields.thms_facet),
@@ -375,7 +380,7 @@ object Find_Facts {
           val thms = res.string(Fields.thms_facet)
 
           Facets(chapter, sessions, theories, file_types, commands, kinds, consts, typs, thms)
-        }, q = q, fq = fq)
+        }, q = q, fq = fq, max_terms = max_terms)
 
 
     /* queries */
