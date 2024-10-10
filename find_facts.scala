@@ -487,7 +487,7 @@ object Find_Facts {
       command_ranges: List[(String, Text.Range)]
     ): List[Block] = {
       val version = snapshot.version.id
-      val file = snapshot.node_name.node
+      val file = Path.explode(snapshot.node_name.node).squash.implode
       val url_path = thy_dir + browser_info_context.smart_html(theory_info, snapshot.node_name.node)
 
       val elements =
