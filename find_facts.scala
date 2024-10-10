@@ -409,7 +409,7 @@ object Find_Facts {
       def solr_atom(atom: Atom): List[Solr.Source] =
         atom match {
           case Atom.Value(s) if s.isEmpty => Nil
-          case Atom.Value(s) if !s.exists(Solr.wildcard(_)) => List(Solr.term(s))
+          case Atom.Value(s) if !s.exists(Solr.wildcard_char(_)) => List(Solr.term(s))
           case Atom.Value(s) =>
             val terms = s.split("\\s+").toList.filterNot(_.isBlank)
             if (terms.isEmpty) Nil else terms.map(Solr.wildcard)
