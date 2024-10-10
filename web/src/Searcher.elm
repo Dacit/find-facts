@@ -254,6 +254,7 @@ view_menu counts value =
     suggestions =
       counts
       |> Dict.toList
+      |> List.filter (Tuple.first >> String.isEmpty >> not)
       |> List.filter (Tuple.first >> String.toLower >> String.contains (String.toLower value))
       |> List.sortBy Tuple.second
       |> List.reverse
