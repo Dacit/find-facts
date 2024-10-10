@@ -683,7 +683,7 @@ object Find_Facts {
       var target_dir = Path.current
 
       val getopts = Getopts("""
-  Usage: isabelle find_facts_index_component NAME
+  Usage: isabelle find_facts_index_component
 
     Options are:
       -o OPTION    override Isabelle system OPTION (via NAME=VAL or NAME)
