@@ -506,7 +506,7 @@ object Find_Facts {
       val index = Symbol.Index(content)
       val node_entities =
         TreeMap.from(entities
-          .filter(entity => entity.file == file)
+          .filter(entity => entity.file == snapshot.node_name.node)
           .groupBy(entity => index.decode(entity.range).start))
 
       val rendering = new Rendering(snapshot, options, session)
