@@ -58,7 +58,7 @@ object Component_Solr {
 
       Isabelle_System.make_directory(component_dir.lib)
 
-      val compile = List("solr-solrj", "solr-api")
+      val compile = List("solr-solrj", "solr-api", "solr-core")
 
       val jars =
         File.find_files(webapp_lib_dir.file, _.getName.endsWith(".jar")) ++
